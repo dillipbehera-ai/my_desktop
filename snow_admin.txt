@@ -1,0 +1,415 @@
+What is a Snowflake Warehouse?✅✅✅✅
+A virtual compute resource to execute queries. Warehouses can be scaled independently.
+CREATE WAREHOUSE my_wh WITH WAREHOUSE_SIZE = 'XSMALL';
+2. How to create and resize a warehouse?✅✅✅✅
+You can set size (XS to 6XL) and scale dynamically.
+ALTER WAREHOUSE my_wh SET WAREHOUSE_SIZE = 'LARGE';
+3. What is auto-suspend and auto-resume?✅✅✅✅
+Auto-suspend saves cost when not in use; auto-resume restarts when queried.
+Example:
+
+
+ALTER WAREHOUSE my_wh SET AUTO_SUSPEND = 60;
+
+Snowflake offers these standard compute sizes:
+
+Size	Virtual Warehouses	Memory & CPU (approx.)
+XSMALL	1	~1 CPU, ~8 GB RAM
+SMALL	2	~2 CPU, ~16 GB RAM
+MEDIUM	4	~4 CPU, ~32 GB RAM
+LARGE	8	~8 CPU, ~64 GB RAM
+XLARGE	16	~16 CPU, ~128 GB RAM
+2XLARGE	32	~32 CPU, ~256 GB RAM
+3XLARGE	64	~64 CPU, ~512 GB RAM
+4XLARGE	128	~128 CPU, ~1 TB RAM
+5XLARGE	256	~256 CPU, ~2 TB RAM
+6XLARGE	512	~512 CPU, ~4 TB RAM
+
+📊 For Managing 20 TB of Data in Production
+✅ Recommendations depend on query complexity, concurrency, and latency SLAs:
+
+🔹 Basic ETL / Reporting Workloads:
+MEDIUM or LARGE may be sufficient.
+
+Use auto-scaling (multi-cluster) for concurrency.
+
+🔹 Heavy Joins / Complex Analytics / BI Tools:
+Start with XLARGE or 2XLARGE
+
+Enable multi-cluster (up to 3-5) for high concurrency.
+
+🔹 High Throughput + Real-Time Pipelines:
+Use 3XLARGE or above (especially for Snowpipe, streams, materialized views).
+
+🛠 Example Setup for Production:
+CREATE WAREHOUSE prod_etl_wh
+  WAREHOUSE_SIZE = '2XLARGE'
+  MAX_CLUSTER_COUNT = 3
+  AUTO_SUSPEND = 300
+  AUTO_RESUME = TRUE
+  INITIALLY_SUSPENDED = TRUE;
+✅ Monitor and adjust using:✅✅✅✅✅
+
+SELECT * FROM SNOWFLAKE.ACCOUNT_USAGE.WAREHOUSE_LOAD_HISTORY;
+
++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+4. How to list roles in Snowflake?✅✅✅✅
+Use the SHOW ROLES command.
+Example:
+
+sql
+Copy
+Edit
+SHOW ROLES;
+5. How to create a custom role?✅✅✅
+Custom roles help manage fine-grained access.
+Example:
+
+sql
+Copy
+Edit
+CREATE ROLE analyst_role;
+6. How to grant a role to a user?✅✅✅
+Grants assign access to users.
+Example:
+
+sql
+Copy
+Edit
+GRANT ROLE analyst_role TO USER john_doe;✅✅✅✅
+7. How to grant privileges to roles?
+Access is controlled via GRANT statements.
+Example:
+
+sql
+Copy
+Edit
+GRANT SELECT ON DATABASE mydb TO ROLE analyst_role;
+8. What is a Resource Monitor?✅✅✅✅
+It controls and monitors compute usage.
+
+CREATE RESOURCE MONITOR rm1 WITH CREDIT_QUOTA=100;
+
+9. How to assign a resource monitor to a warehouse?✅✅✅
+Link monitor to restrict credit usage.
+Example:
+
+sql
+Copy
+Edit
+ALTER WAREHOUSE my_wh SET RESOURCE_MONITOR = rm1;
+10. How to view warehouse usage history?✅✅✅✅
+Use WAREHOUSE_LOAD_HISTORY view.
+Example:
+
+sql
+Copy
+Edit
+SELECT * FROM SNOWFLAKE.ACCOUNT_USAGE.WAREHOUSE_LOAD_HISTORY;
+11. What are shares in Snowflake?✅✅✅✅
+Used to share data across accounts.
+Example:
+
+sql
+Copy
+Edit
+CREATE SHARE share_name;
+GRANT USAGE ON DATABASE mydb TO SHARE share_name;
+12. How to manage multi-cluster warehouses?✅✅✅✅✅
+Set MAX_CLUSTER_COUNT and scaling policy.
+Example:
+
+sql
+Copy
+Edit
+CREATE WAREHOUSE my_mc_wh WITH MAX_CLUSTER_COUNT = 3;
+13. How to list all users?✅✅✅✅✅
+Use the SHOW USERS command.
+Example:
+
+sql
+Copy
+Edit
+SHOW USERS;
+14. How to reset user password?✅✅✅✅✅✅
+Admin can reset via ALTER USER.
+Example:
+
+sql
+Copy
+Edit
+ALTER USER john_doe SET PASSWORD = 'NewPass123!';
+15. How to grant access to views or tables?✅✅✅✅✅✅
+Use GRANT with object type.
+Example:
+
+sql
+Copy
+Edit
+GRANT SELECT ON VIEW my_view TO ROLE analyst_role;
+16. What is the role hierarchy in Snowflake?✅✅✅✅
+Roles can be nested. Privileges cascade down.
+Example:
+
+sql
+Copy
+Edit
+GRANT ROLE junior_analyst TO ROLE senior_analyst;
+17. How to check query history?
+Use QUERY_HISTORY view.
+Example:
+
+sql
+Copy
+Edit
+SELECT * FROM SNOWFLAKE.ACCOUNT_USAGE.QUERY_HISTORY WHERE USER_NAME = 'john_doe';
+18. How to enable MFA for a user?
+Enable via Snowflake UI under user settings.
+
+19. What is the difference between ACCOUNTADMIN and SYSADMIN?
+ACCOUNTADMIN is the highest role; SYSADMIN manages warehouses and databases.
+
+20. How to copy data between environments (e.g., Dev to Prod)?
+Use CREATE DATABASE FROM SHARE or COPY INTO.
+Example:
+
+sql
+Copy
+Edit
+COPY INTO prod_db.mytable FROM dev_db.mytable;
+I will continue the next 30 questions in follow-up messages. Would you like a downloadable PDF or continue here?
+
+
+
+
+
+
+
+You said:
+yes
+
+
+ChatGPT said:
+Continuing with the next set of Snowflake Admin top interview questions (21–50) with short answers and examples:
+
+21. What are Snowflake Tasks?
+Used to schedule SQL scripts for automation.
+Example:
+
+sql
+Copy
+Edit
+CREATE TASK daily_task
+  WAREHOUSE = my_wh
+  SCHEDULE = '1 DAY'
+AS
+  CALL SP_REFRESH_DATA();
+22. How to monitor failed tasks?
+Use SNOWFLAKE.ACCOUNT_USAGE.TASK_HISTORY.
+Example:
+
+sql
+Copy
+Edit
+SELECT * FROM SNOWFLAKE.ACCOUNT_USAGE.TASK_HISTORY WHERE STATE = 'FAILED';
+23. How to enable data retention for longer periods?
+Use DATA_RETENTION_TIME_IN_DAYS when creating tables.
+Example:
+
+sql
+Copy
+Edit
+CREATE TABLE my_table (... ) DATA_RETENTION_TIME_IN_DAYS = 30;
+24. What is Fail-safe in Snowflake?
+7-day read-only recovery after Time Travel ends.
+
+25. How to check storage usage?
+Use DATABASE_STORAGE_USAGE_HISTORY.
+Example:
+
+sql
+Copy
+Edit
+SELECT * FROM SNOWFLAKE.ACCOUNT_USAGE.DATABASE_STORAGE_USAGE_HISTORY;
+26. What is a Virtual Private Snowflake (VPS)?
+Dedicated secure deployment of Snowflake for regulated industries.
+
+27. What are pipes in Snowflake?
+Used in Snowpipe to auto-load data.
+Example:
+
+sql
+Copy
+Edit
+CREATE PIPE my_pipe AS
+COPY INTO my_table FROM @my_stage FILE_FORMAT = (TYPE = 'CSV');
+28. How to check Snowpipe load history?
+Use COPY_HISTORY view or TASK_HISTORY.
+Example:
+
+sql
+Copy
+Edit
+SELECT * FROM SNOWFLAKE.ACCOUNT_USAGE.COPY_HISTORY WHERE PIPE_NAME = 'MY_PIPE';
+29. How to set up External Stages?
+Used for integrating with S3, Azure, or GCS.
+Example:
+
+sql
+Copy
+Edit
+CREATE STAGE my_s3_stage
+URL='s3://mybucket/data/'
+CREDENTIALS=(AWS_KEY_ID='...' AWS_SECRET_KEY='...');
+30. What is Time Travel in Snowflake?
+Query/restore historical data for up to 90 days.
+Example:
+
+sql
+Copy
+Edit
+SELECT * FROM my_table AT (TIMESTAMP => '2025-05-01 00:00:00');
+31. How to clone tables/databases/schemas?
+Cloning is metadata-only, near-instant.
+Example:
+
+sql
+Copy
+Edit
+CREATE TABLE new_table CLONE old_table;
+32. How to use masking policies?
+Protect sensitive data via column masking.
+Example:
+
+sql
+Copy
+Edit
+CREATE MASKING POLICY ssn_mask AS (val STRING) RETURNS STRING ->
+  CASE WHEN CURRENT_ROLE() IN ('HR_ROLE') THEN val ELSE 'XXX-XX-XXXX' END;
+
+ALTER TABLE emp_table MODIFY COLUMN ssn SET MASKING POLICY ssn_mask;
+33. How to revoke access?
+Use REVOKE statements for security.
+Example:
+
+sql
+Copy
+Edit
+REVOKE SELECT ON TABLE my_table FROM ROLE analyst_role;
+34. How to monitor user login history?
+Use LOGIN_HISTORY view.
+Example:
+
+sql
+Copy
+Edit
+SELECT * FROM SNOWFLAKE.ACCOUNT_USAGE.LOGIN_HISTORY WHERE USER_NAME = 'john_doe';
+35. What are tags in Snowflake?
+Used for classification, cost tracking, governance.
+Example:
+
+sql
+Copy
+Edit
+CREATE TAG department_tag;
+ALTER TABLE emp_table SET TAG department_tag = 'Finance';
+36. What is the role of Information Schema?
+Provides metadata views per DB/schema.
+Example:
+
+sql
+Copy
+Edit
+SELECT * FROM MYDB.INFORMATION_SCHEMA.TABLES;
+37. How to implement RBAC in Snowflake?
+Use roles, grants, and role hierarchy for access control.
+
+38. What is zero-copy cloning?
+Creates logical copies without duplicating data.
+
+39. How to manage file formats?
+Define formats for loading/unloading data.
+Example:
+
+sql
+Copy
+Edit
+CREATE FILE FORMAT my_csv_format TYPE = 'CSV' FIELD_OPTIONALLY_ENCLOSED_BY='"';
+40. How to unload data to S3?
+Use COPY INTO with S3 stage.
+Example:
+
+sql
+Copy
+Edit
+COPY INTO @my_s3_stage FROM my_table FILE_FORMAT = (FORMAT_NAME = my_csv_format);
+41. How to restrict IP address access?
+Use network policies.
+Example:
+
+sql
+Copy
+Edit
+CREATE NETWORK POLICY corp_policy ALLOWED_IP_LIST=('192.168.1.0/24');
+ALTER USER john_doe SET NETWORK_POLICY = corp_policy;
+42. How to rename databases/tables?
+Use RENAME keyword.
+Example:
+
+sql
+Copy
+Edit
+ALTER TABLE old_name RENAME TO new_name;
+43. What are integration objects in Snowflake?
+Used for external authentication/storage like AWS IAM or Azure.
+Example:
+
+sql
+Copy
+Edit
+CREATE STORAGE INTEGRATION s3_int TYPE = EXTERNAL_STAGE ...;
+44. What are secondary roles?
+Allows using multiple roles without switching.
+Example:
+
+sql
+Copy
+Edit
+SET SECONDARY_ROLES = ALL;
+45. What are external functions?
+Call external APIs in SQL.
+Example:
+
+sql
+Copy
+Edit
+CREATE EXTERNAL FUNCTION get_weather(city STRING) RETURNS STRING
+API_INTEGRATION = my_api_int;
+46. How to monitor credit usage?
+Use WAREHOUSE_METERING_HISTORY.
+Example:
+
+sql
+Copy
+Edit
+SELECT * FROM SNOWFLAKE.ACCOUNT_USAGE.WAREHOUSE_METERING_HISTORY;
+47. How to secure stage files?
+Use encryption and storage integration policies.
+
+48. How to set default role/warehouse for user?
+Defined during user creation.
+Example:
+
+sql
+Copy
+Edit
+CREATE USER john_doe DEFAULT_ROLE = analyst DEFAULT_WAREHOUSE = my_wh;
+49. What happens when a warehouse is suspended?
+Query waits or fails based on AUTO_RESUME setting.
+
+50. What are the main cost control best practices?
+Enable auto-suspend
+
+Use resource monitors
+
+Optimize clustering and storage

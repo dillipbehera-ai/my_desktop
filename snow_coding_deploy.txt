@@ -1,0 +1,498 @@
+
+✅ Summary Flow (with Tooling)
+
+  A[Unix Shell Script] --> B[S3 Upload]
+  B --> C[Snowflake External Stage]
+  C --> D[Staging Table]
+  D --> E[Core Table (SCD Type 2)]
+  E --> F[Semantic Views]
+  F --> G[Tableau Dashboard]
+
+You said:
+Terraform/IaC setup for S3 & Snowflake?yes
+
+Sample Airflow DAG for orchestration?yes
+
+Tableau user access configuration script?yes
+
+
+✅ 1. Terraform Setup for S3 + Snowflake--------------✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅
+🔹 Terraform Structure:
+
+terraform/
+├── main.tf
+├── variables.tf
+├── outputs.tf
+└── providers.tf
+🔹 providers.tf
+hcl
+Copy
+Edit
+provider "aws" {
+  region = "us-east-1"
+}
+
+provider "snowflake" {
+  account   = var.snowflake_account
+  username  = var.snowflake_user
+  password  = var.snowflake_password
+  role      = "ACCOUNTADMIN"
+}
+🔹 main.tf
+hcl
+Copy
+Edit
+# S3 Bucket
+resource "aws_s3_bucket" "raw_zone" {
+  bucket = "raw-zone-claims"
+  acl    = "private"
+}
+
+# Snowflake Stage
+resource "snowflake_stage" "s3_stage" {
+  name            = "S3_STAGE"
+  url             = "s3://${aws_s3_bucket.raw_zone.bucket}/claims"
+  storage_integration = "MY_S3_INT"
+  database        = "RAW_DB"
+  schema          = "PUBLIC"
+  file_format     = "CSV_FORMAT"
+}
+🔹 variables.tf
+hcl
+Copy
+Edit
+variable "snowflake_account" {}
+variable "snowflake_user" {}
+variable "snowflake_password" {}
+✅ 2. Airflow DAG – Unix → S3 → Snowflake Pipeline✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅
+🔹 dags/unix_s3_snowflake_pipeline.py
+python
+Copy
+Edit
+from airflow import DAG
+from airflow.operators.bash import BashOperator
+from airflow.providers.amazon.aws.transfers.local_to_s3 import LocalFilesystemToS3Operator
+from airflow.providers.snowflake.operators.snowflake import SnowflakeOperator
+from datetime import datetime
+
+default_args = {"start_date": datetime(2024, 1, 1)}
+
+with DAG("unix_s3_snowflake_pipeline", schedule_interval="@daily", catchup=False, default_args=default_args) as dag:
+
+    upload_to_s3 = LocalFilesystemToS3Operator(
+        task_id='upload_csv_to_s3',
+        filename='/data/claims_2025.csv',
+        dest_key='claims/claims_2025.csv',
+        dest_bucket='raw-zone-claims',
+        aws_conn_id='aws_default',
+        replace=True
+    )
+
+    load_to_snowflake = SnowflakeOperator(
+        task_id='copy_into_snowflake',
+        sql="""
+        COPY INTO raw_db.claims_stg FROM @s3_stage/claims FILE_FORMAT = (FORMAT_NAME = 'CSV_FORMAT');
+        """,
+        snowflake_conn_id='snowflake_default'
+    )
+
+    upload_to_s3 >> load_to_snowflake
+✅ 3. Tableau Access Script (BI User)✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅
+🔹 Snowflake SQL for BI Role:
+sql
+Copy
+Edit
+-- Create role
+CREATE ROLE tableau_bi;
+
+-- Grant access to semantic views
+GRANT USAGE ON DATABASE semantic TO ROLE tableau_bi;
+GRANT USAGE ON SCHEMA semantic.public TO ROLE tableau_bi;
+GRANT SELECT ON ALL VIEWS IN SCHEMA semantic.public TO ROLE tableau_bi;
+
+-- Assign role to Tableau user
+CREATE USER tableau_user PASSWORD='StrongPass123';
+GRANT ROLE tableau_bi TO USER tableau_user;
+🔹 Tableau Setup Steps:
+Use Snowflake ODBC Connector.
+
+Set tableau_user as the username.
+
+Connect to semantic.public view layer.
+
+Build and publish dashboards to Tableau Server/Online.
+
++++++++++++++++++++++++++++
+✅✅✅✅✅✅✅✅✅✅✅✅HOW SNOWSQL like beteq----✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅
++++++++++++++++++++++++++++++++
+Create a Sample SQL File (run_etl.sql)✅✅✅✅✅✅✅✅✅✅✅✅
+sql
+Copy
+Edit
+-- run_etl.sql
+USE WAREHOUSE prod_wh;
+USE DATABASE sales_db;
+USE SCHEMA public;
+
+-- Step 1: Truncate target table
+TRUNCATE TABLE sales_summary;
+
+-- Step 2: Insert new data
+INSERT INTO sales_summary
+SELECT region, SUM(amount) AS total_sales
+FROM sales_data
+GROUP BY region;
+
+-- Step 3:✅✅✅ Verify
+SELECT COUNT(*) FROM sales_summary;
+ ✅✅✅✅✅Create a Shell Script for snow ✅✅✅✅✅ ✅✅✅✅✅ ✅✅✅✅✅ ✅✅✅✅✅
+
+#!/bin/bash
+
+# Variables (use --option or config profiles for better security)
+USER="your_user"
+ACCOUNT="your_account"
+WAREHOUSE="your_warehouse"
+DATABASE="your_database"
+SCHEMA="your_schema"
+SQL_FILE="snow_job.sql"
+LOG_FILE="snow_run.log"
+
+echo "▶️ Running Snowflake SQL file: $SQL_FILE"
+
+snowsql -a $ACCOUNT -u $USER -w $WAREHOUSE -d $DATABASE -s $SCHEMA -f $SQL_FILE -o log_level=INFO -o output_file=$LOG_FILE
+
+EXIT_CODE=$?
+
+if [ $EXIT_CODE -eq 0 ]; then
+    echo "✅ SQL script executed successfully."
+else
+    echo "❌ SQL script failed. Check log: $LOG_FILE"
+    exit $EXIT_CODE
+fi
+
++++++++++++++++++++++++++++++++
+✅✅✅✅✅✅ Python (snowflake)(run_snow_job.py)✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅
+
+Sample Snowflake SQL Script (snow_job.sql)✅✅✅✅✅✅✅✅✅
+This SQL file includes INSERT, DELETE, MERGE, and a PROCEDURE definition wrapped in exception handling:
+
+sql
+Copy
+Edit
+-- snow_job.sql
+
+-- Delete existing test data
+DELETE FROM my_schema.customer_dim WHERE updated_at < CURRENT_DATE - 30;
+
+-- Insert new data
+INSERT INTO my_schema.customer_dim (cust_id, name, email, updated_at)
+VALUES (1, 'Alice', 'alice@email.com', CURRENT_TIMESTAMP);
+
+-- Merge UPSERT logic
+MERGE INTO my_schema.customer_dim AS target
+USING (SELECT 1 AS cust_id, 'Alice Smith' AS name, 'alice@email.com' AS email, CURRENT_TIMESTAMP AS updated_at) AS src
+ON target.cust_id = src.cust_id
+WHEN MATCHED THEN UPDATE SET target.name = src.name, target.updated_at = src.updated_at
+WHEN NOT MATCHED THEN INSERT (cust_id, name, email, updated_at)
+VALUES (src.cust_id, src.name, src.email, src.updated_at);
+
+-- Create or Replace Procedure with Error Handling
+CREATE OR REPLACE PROCEDURE my_schema.proc_sample_update()
+RETURNS STRING
+LANGUAGE SQL
+AS
+$$
+BEGIN
+    -- Update statement
+    UPDATE my_schema.customer_dim
+    SET email = LOWER(email)
+    WHERE email LIKE '%EMAIL.COM';
+
+    RETURN 'Procedure executed successfully';
+EXCEPTION
+    WHEN STATEMENT_ERROR THEN
+        RETURN 'Failed in statement: ' || ERROR_MESSAGE();
+    WHEN OTHER THEN
+        RETURN 'General error: ' || ERROR_MESSAGE();
+END;
+$$;
+
+-- Call the Procedure
+CALL my_schema.proc_sample_update();
+✅ 2. Python Script to Run the SQL File (run_sql_script.py)✅✅✅✅✅✅
+python
+Copy
+Edit
+import snowflake.connector
+
+# ❄️ Snowflake connection parameters
+conn = snowflake.connector.connect(
+    user='YOUR_USERNAME',
+    password='YOUR_PASSWORD',
+    account='YOUR_ACCOUNT_ID',
+    warehouse='YOUR_WAREHOUSE',
+    database='YOUR_DATABASE',
+    schema='my_schema'
+)
+
+cursor = conn.cursor()
+
+try:
+    with open("snow_job.sql", "r") as f:
+        sql_script = f.read()
+
+    # Split by semicolon to execute multiple statements
+    for statement in sql_script.strip().split(";"):
+        if statement.strip():
+            print(f"Executing: {statement[:50]}...")
+            cursor.execute(statement)
+
+except Exception as e:
+    print(f"❌ Error running SQL script: {e}")
+
+finally:
+    cursor.close()
+    conn.close()
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+ ✅✅✅✅✅ ✅✅✅✅✅ ✅✅✅✅✅ ✅✅✅✅✅ ✅✅✅✅✅ ✅✅✅✅✅ ✅✅✅✅✅
+✅✅✅✅✅PYSPARK With SNOWFLAKE✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅
+
+Step-by-Step SCD Type 2 with PySpark & Snowflake
+✅ 1. Read file from AWS S3✅✅✅
+python
+Copy
+Edit
+df_incoming = spark.read.csv("s3a://your-bucket/customer.csv", header=True, inferSchema=True)
+🔹 Reads raw customer data from S3 into a DataFrame.
+
+✅ 2. Set up Snowflake connection options✅✅✅
+python
+Copy
+Edit
+sfOptions = {
+  "sfURL": "xyz123.snowflakecomputing.com",
+  "sfDatabase": "MY_DB",
+  "sfSchema": "PUBLIC",
+  "sfWarehouse": "COMPUTE_WH",
+  "sfRole": "SYSADMIN",
+  "sfUser": "YOUR_USER",
+  "sfPassword": "YOUR_PASSWORD"
+}
+🔹 Configures credentials for Snowflake connector.
+
+✅ 3. Read existing SCD2 table from Snowflake✅✅✅✅
+python
+Copy
+Edit
+df_existing = spark.read \
+  .format("snowflake") \
+  .options(**sfOptions) \
+  .option("dbtable", "CUSTOMER_DIM") \
+  .load()
+🔹 Loads the current dimension table from Snowflake.
+
+✅ 4. Mark records as expired (UPDATE)✅✅✅✅
+python
+Copy
+Edit
+from pyspark.sql.functions import current_date, lit
+
+df_expired = df_existing.alias("old").join(df_incoming.alias("new"), "cust_id") \
+  .filter("old.email != new.email") \
+  .selectExpr("old.cust_id", "old.name", "old.email", "old.valid_from", "current_date() as valid_to", "lit('N') as is_active")
+🔹 Compares incoming data and flags old records to expire (i.e., set valid_to, is_active = 'N').
+
+✅ 5. Prepare new versions (INSERT)✅✅✅
+python
+Copy
+Edit
+df_new_versions = df_incoming.alias("new").join(df_existing.alias("old"), "cust_id", "left_anti") \
+  .withColumn("valid_from", current_date()) \
+  .withColumn("valid_to", lit(None).cast("date")) \
+  .withColumn("is_active", lit("Y"))
+🔹 Inserts new or changed versions with valid_from = today, is_active = 'Y'.
+
+✅ 6. Write expired records (updates) to Snowflake✅✅✅
+python
+Copy
+Edit
+df_expired.write \
+  .format("snowflake") \
+  .options(**sfOptions) \
+  .option("dbtable", "CUSTOMER_DIM") \
+  .mode("append") \
+  .save()
+🔹 Appends expired records (old versions) with updated flags.
+
+✅ 7. Write new versions to Snowflake✅✅✅
+python
+Copy
+Edit
+df_new_versions.write \
+  .format("snowflake") \
+  .options(**sfOptions) \
+  .option("dbtable", "CUSTOMER_DIM") \
+  .mode("append") \
+  .save()
+🔹 Appends the new or updated active records as the current version.
+
+
+++++++++++++++++++++++++++++++++++++++++++++++++++
+Step-by-Step:✅✅✅ SCD Type 2 from S3 → STG → CORE (Snowflake)✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅
+
+✅ 1. S3 → STG Table (via COPY or Snowpipe)✅✅✅
+sql
+Copy
+Edit
+-- Create STG table
+CREATE OR REPLACE TABLE STG_CUSTOMER (
+  cust_id INT,
+  name STRING,
+  email STRING,
+  load_ts TIMESTAMP
+);
+
+-- Stage creation (for Snowpipe or COPY)
+CREATE OR REPLACE STAGE s3_stage 
+  URL='s3://your-bucket/customer/' 
+  STORAGE_INTEGRATION = my_integration;
+
+-- Load data manually (COPY INTO for demo)
+COPY INTO STG_CUSTOMER
+FROM @s3_stage
+FILE_FORMAT = (TYPE = CSV FIELD_OPTIONALLY_ENCLOSED_BY='"')
+PATTERN = '.*\.csv';
+✅ 2. CORE Table with SCD Type 2 Design✅✅✅✅
+sql
+Copy
+Edit
+CREATE OR REPLACE TABLE CORE_CUSTOMER (
+  cust_id INT,
+  name STRING,
+  email STRING,
+  valid_from DATE,
+  valid_to DATE,
+  is_active STRING -- 'Y' for current, 'N' for expired
+);
+✅ 3. Stored Procedure: SCD Type 2 Merge Logic✅✅✅✅
+sql
+Copy
+Edit
+CREATE OR REPLACE PROCEDURE SP_LOAD_CORE_CUSTOMER()
+RETURNS STRING
+LANGUAGE SQL
+AS
+$$
+DECLARE
+  rows_inserted INT;
+  rows_updated INT;
+BEGIN
+  -- Step 1: Expire old records
+  UPDATE CORE_CUSTOMER tgt
+  SET valid_to = CURRENT_DATE - 1,
+      is_active = 'N'
+  FROM STG_CUSTOMER src
+  WHERE tgt.cust_id = src.cust_id
+    AND tgt.is_active = 'Y'
+    AND (
+      tgt.name != src.name OR tgt.email != src.email
+    );
+
+  LET rows_updated = SQLROWCOUNT;
+
+  -- Step 2: Insert new versions
+  INSERT INTO CORE_CUSTOMER (cust_id, name, email, valid_from, valid_to, is_active)
+  SELECT 
+    cust_id,
+    name,
+    email,
+    CURRENT_DATE,  -- valid_from
+    NULL,          -- valid_to (open-ended)
+    'Y'
+  FROM STG_CUSTOMER src
+  LEFT JOIN CORE_CUSTOMER tgt
+    ON src.cust_id = tgt.cust_id AND tgt.is_active = 'Y'
+  WHERE tgt.cust_id IS NULL OR tgt.name != src.name OR tgt.email != src.email;
+
+  LET rows_inserted = SQLROWCOUNT;
+
+  RETURN 'Inserted: ' || rows_inserted || ', Updated: ' || rows_updated;
+END;
+$$;
+✅ 4. Run the Procedure✅✅✅✅
+sql
+Copy
+Edit
+CALL SP_LOAD_CORE_CUSTOMER();
+✅ Summary
+Step	Description
+STG Table	Holds latest raw data from S3
+CORE Table	Stores historical SCD2 records
+Procedure	Expires old and inserts new versions
+valid_from / valid_to	Tracks effective dates of records
+is_active	Flags current record as 'Y'
+
++++++++++++++++++++++++++++++++++++++++++++
+2 ✅✅✅✅✅✅✅✅✅✅✅✅Historical table load--------✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅
+
+
+SRC_CUSTOMER_HIST (source historical table)
+
+TRG_CUSTOMER_HIST (target historical table)
+
+You want to sync new/updated records only.
+
+✅ 1. Assumptions✅✅✅✅
+Both tables follow this schema:
+
+sql
+Copy
+Edit
+cust_id INT,
+name STRING,
+email STRING,
+valid_from DATE,
+valid_to DATE,
+is_active STRING -- 'Y' or 'N'
+✅ 2. SCD Type 2 Merge Logic✅✅✅✅✅✅✅✅
+sql
+Copy
+Edit
+-- Step 1: Expire target rows if changes found in source
+UPDATE TRG_CUSTOMER_HIST tgt
+SET valid_to = CURRENT_DATE - 1,
+    is_active = 'N'
+FROM SRC_CUSTOMER_HIST src
+WHERE tgt.cust_id = src.cust_id
+  AND tgt.is_active = 'Y'
+  AND src.is_active = 'Y'
+  AND (
+    tgt.name != src.name OR tgt.email != src.email
+  );
+
+-- Step 2: Insert changed records into target
+INSERT INTO TRG_CUSTOMER_HIST (cust_id, name, email, valid_from, valid_to, is_active)
+SELECT 
+  src.cust_id,
+  src.name,
+  src.email,
+  CURRENT_DATE,      -- valid_from
+  NULL,              -- valid_to
+  'Y'                -- is_active
+FROM SRC_CUSTOMER_HIST src
+LEFT JOIN TRG_CUSTOMER_HIST tgt
+  ON src.cust_id = tgt.cust_id AND tgt.is_active = 'Y'
+WHERE src.is_active = 'Y'
+  AND (tgt.cust_id IS NULL OR tgt.name != src.name OR tgt.email != src.email);
+✅ Summary of Logic:✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅
+Step	Description
+🔁 Compare active versions	Only is_active = 'Y' rows are compared
+❌ Expire changed rows	Sets valid_to in target if difference found
+➕ Insert new rows	Adds latest version as is_active = 'Y'
+🔄 Historical preserved	Older versions remain with is_active = 'N'
+
+++++++++++++++++++
+✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅
+
+

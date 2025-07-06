@@ -1,0 +1,827 @@
+✅✅✅✅✅✅✅✅✅
+CREATE [EXTERNAL] TABLE [IF NOT EXISTS] table_name (
+   column1 datatype,
+   column2 datatype,
+   ...
+)
+[COMMENT 'table comment']
+[PARTITIONED BY (col datatype, ...)]
+[CLUSTERED BY (col, ...) INTO num_buckets BUCKETS]
+[ROW FORMAT ...]
+[STORED AS ...]
+[LOCATION 'hdfs/path']
+[TBLPROPERTIES (key1='value1', ...)]
+[AS SELECT ...];
++++++++++++++++++++++++++✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅
+
+1.✅✅✅ EXTERNAL
+Purpose: Declares a table whose data is not managed by Hive.
+Why: Data won't be deleted even if you drop the table — ideal for shared datasets.
+Impact: Only metadata is deleted on DROP, not actual files.
+Example:
+CREATE EXTERNAL TABLE logs (...) LOCATION '/data/logs';
+Alternative: Use MANAGED TABLE (default) if Hive should manage the data lifecycle.
+
+2.✅✅✅ IF NOT EXISTS
+Purpose: Prevents errors when the table already exists.
+Why: Useful in automated scripts or CI/CD pipelines.
+Impact: Ensures table creation doesn’t fail if it already exists.
+Example:
+CREATE TABLE IF NOT EXISTS sales (...);
+Alternative: Manually check using SHOW TABLES or conditional logic.
+
+4.✅✅✅ PARTITIONED BY
+Purpose: Divides data based on column values, enabling pruning.
+Why: Improves query performance by skipping irrelevant partitions.
+Impact: Data stored in subdirectories by partition value.
+Example:
+
+PARTITIONED BY (year INT, month INT)
+Alternative: Use bucketing or clustering for large flat datasets.
+
+5.✅✅✅ CLUSTERED BY
+Purpose: Buckets data into files based on hash of column.
+Why: Enables faster joins and sampling.
+Impact: Data is split into N files (buckets) for parallelism.
+Example:
+CLUSTERED BY (user_id) INTO 10 BUCKETS
+Alternative: Partitioning, but bucketing allows fine-grained control within partitions.
+
+6.✅✅✅ SKEWED BY
+Purpose: Handles skewed column values by placing them in separate files.
+Why: Prevents performance issues caused by heavy keys.
+Impact: Special files are created for skewed values.
+Example:
+SKEWED BY (country) ON ('US', 'IN')
+Alternative: Manual ETL handling or ignore skew if negligible.
+
+7.✅✅✅ STORED AS
+Purpose: Defines file format like TEXTFILE, ORC, PARQUET, etc.
+Why: File format affects performance, compression, and compatibility.
+Impact: Determines how data is physically stored.
+Example:
+STORED AS PARQUET
+Alternative: Use ROW FORMAT SERDE for more flexibility (e.g., custom formats).
+
+8.✅✅✅ ROW FORMAT
+Purpose: Specifies how to read/write row data — plain text or SerDe.
+Why: Needed when using custom file formats or serialization logic.
+Impact: Changes how data is parsed; used with DELIMITED or SERDE.
+Example:
+ROW FORMAT DELIMITED FIELDS TERMINATED BY ','
+Alternative: Use SerDe for structured formats like JSON, Avro.
+
+9. ✅✅✅FIELDS TERMINATED BY
+Purpose: Defines field delimiter in delimited text files.
+Why: Hive uses this to parse CSV/TSV-type data.
+Impact: Wrong delimiter causes NULLs or incorrect parsing.
+Example:
+FIELDS TERMINATED BY ','
+Alternative: Use SerDe for structured formats instead of delimiters.
+
+10.✅✅✅ LINES TERMINATED BY
+Purpose: Specifies end-of-line character (e.g., \n, \r\n).
+Why: Important when ingesting Windows/Unix formatted text.
+Impact: Misconfiguration may combine rows or cause parsing errors.
+Example:
+LINES TERMINATED BY '\n'
+Alternative: Avoid if using formats like ORC/Parquet which don’t need it.
+
+11.✅✅✅ LOCATION
+Purpose: Points Hive to a specific HDFS/S3 path for table data.
+Why: Required for EXTERNAL tables or to reuse existing data.
+Impact: Hive reads/writes data from the given location.
+Example:
+LOCATION '/user/hive/external/sales'
+Alternative: Omit for managed tables (Hive handles storage automatically).
+
+12. ✅✅✅✅TBLPROPERTIES
+Purpose: Adds custom metadata in key-value pairs.
+Why: Used for governance, tools integration, or documentation.
+Impact: Metadata only; no effect on query or data unless read by tools.
+Example:
+TBLPROPERTIES ('owner'='dillip', 'source'='crm')
+Alternative: Use comments or external metadata catalogs (e.g., Glue).
+
+13. ✅✅✅AS SELECT
+Purpose: Creates and loads data into table from SELECT query.
+Why: Useful for snapshot tables or materializing views.
+Impact: Table is created and pre-populated.
+CREATE TABLE active_users AS SELECT * FROM users WHERE status='active';
+Alternative: Create empty table first, then use INSERT INTO.
+
+14. ✅✅✅✅✅✅LIKE other_table✅✅
+Purpose: Clones the schema (not data) of an existing table.
+Why: Useful when creating staging or backup tables.
+Impact: No data is copied; only structure is duplicated.
+CREATE TABLE new_sales LIKE old_sales;
+Alternative: Use SHOW CREATE TABLE and replicate manually.
+
+✅✅✅✅✅✅✅+✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅
+# Basics✅✅✅
+    ("SHOW TABLES", "Lists all tables in current database", "SHOW TABLES;"),
+    ("DESCRIBE table_name", "Shows schema of a table", "DESCRIBE sales_data;"),
+    ("CREATE TABLE", "Creates a new table", "CREATE TABLE emp (id INT, name STRING);"),
+    ("DROP TABLE", "Deletes a table and its data (if managed)", "DROP TABLE emp;"),
+    ("ALTER TABLE RENAME", "Renames a table", "ALTER TABLE emp RENAME TO employee;"),
+    ("ALTER TABLE ADD COLUMNS", "Adds new columns to table", "ALTER TABLE emp ADD COLUMNS (salary FLOAT);"),
+    ("ALTER TABLE REPLACE COLUMNS", "Replaces all columns", "ALTER TABLE emp REPLACE COLUMNS (id INT, dept STRING);"),
+    ("LOAD DATA", "Loads data from file into table", "LOAD DATA INPATH '/path/emp.txt' INTO TABLE emp;"),
+    ("INSERT INTO", "Inserts data into table", "INSERT INTO emp VALUES (1, 'John');"),
+    ("SELECT", "Retrieves data from table", "SELECT * FROM emp;"),
+    
+  ✅✅✅  # Partition & Bucket✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅
+How Data is Stored in HDFS
+✅✅✅✅Partitioned Table:✅✅✅✅
+
+/user/hive/warehouse/logs/dt=2024-01-01/
+/user/hive/warehouse/logs/dt=2024-01-02/
+✅✅✅Bucketed Table (inside each partition):✅✅✅
+
+/user/hive/warehouse/users/bucket_00000
+/user/hive/warehouse/users/bucket_00001
+Each bucket is a physical file; each partition is a separate folder.
+
+🔸 Benefits✅✅✅✅✅✅✅✅
+Partitioning: Reduces scan size by reading only relevant partitions.
+
+Bucketing: Enables optimized joins and parallelism by grouping on hashed keys.
+
+Together: Combines partitioning’s pruning with bucketing’s performance.
+
+🔸 Small Combined Example✅✅✅✅✅✅✅
+
+CREATE TABLE sales (
+  id INT,
+  region STRING,
+  sale_date STRING
+)
+PARTITIONED BY (sale_date STRING)
+CLUSTERED BY (region) INTO 4 BUCKETS
+STORED AS ORC;
+➤ Load Example:✅
+LOAD DATA INPATH '/data/sales.csv' INTO TABLE sales PARTITION (sale_date='2024-05-01');
+➤ Internally in HDFS:✅✅
+/user/hive/warehouse/sales/sale_date=2024-05-01/bucket_00000
+/user/hive/warehouse/sales/sale_date=2024-05-01/bucket_00001
+🔸 Summary✅✅✅✅✅
+Use partitioning for range-based filtering (like date).
+
+Use bucketing when you frequently join or sample on a specific column.
+
+Combine both to get high performance with scalable metadata.
+
+++++++++++++++++++
+    ("CREATE TABLE ... PARTITIONED BY", "Creates partitioned table", "CREATE TABLE logs (msg STRING) PARTITIONED BY (dt STRING);"),
+    ("SHOW PARTITIONS", "Lists all partitions", "SHOW PARTITIONS logs;"),
+    ("ALTER TABLE ADD PARTITION", "Adds new partition", "ALTER TABLE logs ADD PARTITION (dt='2024-01-01');"),
+    ("ALTER TABLE DROP PARTITION", "Drops partition", "ALTER TABLE logs DROP PARTITION (dt='2024-01-01');"),
+    ("CREATE TABLE ... CLUSTERED BY", "Buckets table data", "CREATE TABLE users (id INT) CLUSTERED BY (id) INTO 4 BUCKETS;"),
+
+    # File formats & SerDe
+    ("STORED AS", "Defines file format", "STORED AS PARQUET"),
+    ("ROW FORMAT DELIMITED", "Specifies delimiter", "ROW FORMAT DELIMITED FIELDS TERMINATED BY ','"),
+    ("ROW FORMAT SERDE", "Uses custom SerDe", "ROW FORMAT SERDE 'org.apache.hadoop.hive.serde2.JsonSerDe'"),
+    
+    # Table properties & comments
+    ("TBLPROPERTIES", "Adds metadata to table", "TBLPROPERTIES ('created.by'='admin');"),
+    ("COMMENT ON TABLE", "Adds table comment", "COMMENT 'This table stores employee data';"),
+
+    # DML
+    ("INSERT OVERWRITE", "Overwrites existing data", "INSERT OVERWRITE TABLE emp SELECT * FROM emp_stage;"),
+    ("CREATE TABLE AS SELECT", "Creates table with query result", "CREATE TABLE emp_copy AS SELECT * FROM emp;"),
+    ("TRUNCATE TABLE", "Deletes all data", "TRUNCATE TABLE emp;"),
+    ("WITH", "Creates CTE for reuse", "WITH dept_cte AS (SELECT * FROM dept) SELECT * FROM dept_cte;"),
+
+    # Joins & Filters
+    ("INNER JOIN", "Combines matching rows", "SELECT * FROM a JOIN b ON a.id = b.id;"),
+    ("LEFT JOIN", "Keeps all from left", "SELECT * FROM a LEFT JOIN b ON a.id = b.id;"),
+    ("RIGHT JOIN", "Keeps all from right", "SELECT * FROM a RIGHT JOIN b ON a.id = b.id;"),
+    ("FULL JOIN", "Keeps all rows", "SELECT * FROM a FULL OUTER JOIN b ON a.id = b.id;"),
+    ("DISTRIBUTE BY", "Controls reducer input", "SELECT * FROM emp DISTRIBUTE BY dept;"),
+    ("SORT BY", "Sorts within reducer", "SELECT * FROM emp SORT BY salary;"),
+    ("CLUSTER BY", "Shorthand for DISTRIBUTE + SORT", "SELECT * FROM emp CLUSTER BY dept;"),
+    
+    # Views✅✅✅✅✅✅✅✅
+    ("CREATE VIEW", "Creates virtual table", "CREATE VIEW emp_view AS SELECT * FROM emp;"),
+    ("DROP VIEW", "Removes view", "DROP VIEW emp_view;"),
+    
+    # UDF & Scripts✅✅✅✅✅✅✅✅✅
+    ("ADD JAR", "Loads external JAR", "ADD JAR /tmp/json-udf.jar;"),
+    ("CREATE TEMPORARY FUNCTION", "Registers UDF", "CREATE TEMPORARY FUNCTION parse_json AS 'com.udf.JsonParser';")
+    # Performance & Settings✅✅✅✅✅✅✅✅✅✅✅
+    ("SET", "Sets session variable", "SET hive.exec.dynamic.partition=true;"),
+    ("EXPLAIN", "Shows query plan", "EXPLAIN SELECT * FROM emp;"),
+    ("ANALYZE TABLE", "Collects table stats", "ANALYZE TABLE emp COMPUTE STATISTICS;"),
+    ("MSCK REPAIR TABLE", "Refreshes partitions", "MSCK REPAIR TABLE logs;"),
+    
+    # Security & Access✅✅✅✅✅✅✅✅✅
+    ("SHOW GRANT", "Lists permissions", "SHOW GRANT user1 ON TABLE emp;"),
+    ("GRANT SELECT", "Gives access", "GRANT SELECT ON TABLE emp TO USER user1;"),
+    ("REVOKE", "Removes access", "REVOKE SELECT ON TABLE emp FROM USER user1;"),
+    
+    # Metadata✅✅✅✅✅✅✅✅
+    ("SHOW CREATE TABLE", "Displays table DDL", "SHOW CREATE TABLE emp;"),
+    ("SHOW DATABASES", "Lists databases", "SHOW DATABASES;"),
+    ("USE", "Switches database", "USE sales_db;"),
+    ("CREATE DATABASE", "Creates a new DB", "CREATE DATABASE marketing;"),
+    ("DROP DATABASE", "Deletes database", "DROP DATABASE marketing;"),
+
+++++++++✅✅✅✅✅✅✅✅✅✅TYPE of files+✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅
+SEQUENCEFILE✅✅✅
+Binary key-value pair format used internally by Hadoop.
+
+Faster than TEXTFILE and supports compression.
+
+Not human-readable and less portable across tools.
+
+Ideal for intermediate processing/storage.
+
+Rarely used in modern Hive data lakes.
+
+3. ORC (Optimized Row Columnar)✅✅✅✅
+Highly efficient columnar storage format designed for Hive.
+
+Offers lightweight compression (ZLIB/SNAPPY), indexing, and predicate pushdown.
+
+Great for read-heavy analytics and joins.
+
+Reduces storage and speeds up queries significantly.
+
+Best suited for Hive+Tez or Hive on LLAP.
+
+4. PARQUET✅✅✅✅
+Columnar format supported by Hive, Spark, Impala, etc.
+
+Interoperable across tools in Hadoop and cloud ecosystems.
+
+Efficient for queries on selected columns (column pruning).
+
+Supports nested structures and better schema evolution.
+
+Preferred for big data analytics and cross-platform compatibility.
+
+✅✅✅✅✅✅ORC vs PARQUET – Key Differences✅✅✅✅✅✅
+Feature	ORC (Optimized Row Columnar)	Parquet
+Storage Type	Columnar	Columnar
+Best Suited For	Hive/Tez, heavy Hive workloads	Spark, Presto, Athena, multi-engine
+Compression	ZLIB (default), SNAPPY, LZO	SNAPPY (default), GZIP, LZO
+Indexing	Built-in indexes, min/max, Bloom filters	Limited; no built-in indexes like ORC
+Predicate Pushdown	✅ Strong (optimized for Hive)	✅ Good (optimized for Spark/Presto)
+Schema Evolution	Limited (append columns only)	Better (rename, reorder, optional fields)
+File Size	Usually smaller (better compression)	Slightly larger
+Write Performance	Slower than Parquet (heavier metadata)	Faster writes
+Read Performance	Faster in Hive (due to indexes and stats)	Faster in Spark/Presto (column pruning)
+Tool Ecosystem	Hive, Tez, LLAP, AWS EMR	Spark, AWS Athena, Presto, BigQuery
+ACID Transactions Support	✅ Yes (Hive ACID tables)	❌ No native support
+
+🏗️ Use Case Recommendation✅✅✅✅
+Use Case	Recommended Format
+Hive on Tez/LLAP warehouse	ORC
+AWS Athena/Glue/Spark SQL	Parquet
+Cross-platform analytics	Parquet
+ACID (insert/update/delete in Hive)	ORC
+Schema evolution & interoperability	Parquet
+
+📦 Data Storage & Retrieval✅✅✅✅✅✅
+ORC: Stores lightweight metadata and indexes in file footer. Faster row group filtering. Great for deep scans.
+
+Parquet: Stores column chunks with metadata blocks. Optimized for wide tables with sparse column access.
+
+++++++++++++++++++++++++++++++++++++
+
+5. AVRO✅✅✅✅✅
+Row-based format with schema stored in the file itself.
+
+Best for data exchange between systems and schema evolution.
+
+Slower read performance than ORC/Parquet, but very flexible.
+
+Used in streaming, Kafka, and intermediate storage.
+
+Great when you need compact, schema-rich row-level data.
+
+6. RCFILE (Row Columnar File)✅✅✅✅✅✅
+Older hybrid format storing data in row-column chunks.
+
+Predecessor of ORC, less efficient but still used in legacy systems.
+
+Good compression, but indexing and performance are inferior to ORC.
+
+Splits file into row groups, then column-wise storage.
+
+Largely replaced by ORC and Parquet.
+
+
++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
++✅✅✅✅✅✅✅✅✅✅✅✅Map Reduce and TEZ✅✅✅✅✅✅✅✅✅✅✅✅✅✅++++++++++
+++++++++++++++
+MapReduce (Traditional Hive Execution Engine)
+Hive originally compiled SQL queries into MapReduce jobs.
+
+Data is processed in key-value pairs using:
+
+Mapper: Processes input records and outputs intermediate key-value pairs.
+
+Reducer: Aggregates/interprets the intermediate results.
+
+Slow for small queries due to disk I/O and startup latency.
+
+SELECT dept, COUNT(*) FROM emp GROUP BY dept;
+Mapper emits: ('HR', 1), ('IT', 1)...
+
+Reducer sums counts: ('HR', 20), ('IT', 15)
+
+🔸 ✅✅✅✅How Map and Reduce Work Internally (Simple Flow)✅✅✅
+✅✅Map Phase:
+
+Input split from HDFS: emp.txt
+
+Mapper: reads each row, emits key-value:
+
+Input: 1,John,IT
+
+Output: ('IT', 1)
+
+Shuffle and Sort:
+
+Groups values by key (e.g., IT)
+
+✅✅Reduce Phase:
+
+Reducer gets ('IT', [1,1,1,1]) and outputs ('IT', 4)
+
+🔸 Summary
+MapReduce is slower but used in legacy setups.
+Hive with vectorized execution (Tez/LLAP) is optimized for modern CPUs and analytical workloads.
+Always prefer vectorization + Tez/LLAP engine for production use.
+
+Let me know if you want a diagram of how map-reduce flows or a Tez DAG comparison.
+
+
+✅ Correct — when you use Vectorization + Tez or LLAP, MapReduce is not used at all.
+
+
+
+✅✅✅ Vectorized Execution (Tez or LLAP Engine)✅✅✅
+
+Processes batches of rows at once using columnar in-memory layout.
+
+Enables SIMD CPU operations for faster execution (like modern CPUs).
+
+Reduces CPU usage, improves cache locality, and avoids Java object creation per row.
+
+
+✅✅✅Tez DAG:✅✅✅
+Tez creates a Directed Acyclic Graph (DAG):------------
+
+Vertex1 (Scan + Map)
+   ↓
+Vertex2 (GroupBy + Reduce)
+Vertex1 reads data and applies filters.
+
+Vertex2 performs grouping and aggregation.
+
+✅ No intermediate disk writes, fewer stages, parallel execution, and container reuse
+
+
+🔸 What happens instead?+++++++
+
+Feature	MapReduce	Tez/LLAP + Vectorization
+Execution engine	MapReduce jobs (slow, disk-heavy)	DAG-based in-memory tasks (fast)
+Processing mode	Row-by-row	Batch of rows (column vectors)
+Job startup latency	High	Very low (Tez containers reused)
+Interactive queries	❌ Not ideal	✅ LLAP supports sub-second latency
+Use of vectorization	❌ Not supported	✅ Full support
+
+🔸 How to use only Tez/LLAP with Vectorization
+
+-- Use Tez engine instead of MapReduce
+Hive_site.xml---------
+<property>
+  <name>hive.execution.engine</name>
+  <value>tez</value>
+</property>
+or in programm--------
+SET hive.execution.engine=tez;
+-- Enable vectorized execution for mappers and reducers
+SET hive.vectorized.execution.enabled=true;
+SET hive.vectorized.execution.reduce.enabled=true;
+
+
+🔸 Conclusion
+✅ If you're using Tez or LLAP, MapReduce is completely bypassed.
+
+✅ You get better performance, parallelism, and lower latency.
+
+✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅
+Advanced Apache Hive Interview Questions and Answers
+What is Apache Hive, and how does it integrate with Hadoop?
+Answer: Hive is a data warehouse system built on Hadoop HDFS, providing a SQL-like interface (HiveQL) for querying and analyzing large datasets. It converts HiveQL into MapReduce, Tez, or Spark jobs for execution on Hadoop, leveraging HDFS for storage and the metastore for metadata.
+How does Hive’s metastore function, and why is it critical?
+Answer: The metastore stores metadata (e.g., table schemas, locations, partitions) in an RDBMS (e.g., MySQL, Derby). It’s critical for query planning, enabling Hive to locate data in HDFS and perform semantic checks efficiently.
+What are the key components of Hive architecture?
+Answer:
+Driver: Manages query lifecycle and sessions.
+Compiler: Converts HiveQL to a DAG of MapReduce/Tez/Spark tasks.
+Metastore: Stores metadata.
+Execution Engine: Submits tasks to Hadoop.
+Clients: CLI, Beeline, or JDBC/ODBC for query submission.
+How does HiveQL differ from standard SQL?
+Answer: HiveQL is SQL-like but lacks full SQL-92 compliance. It supports multi-table inserts, CREATE TABLE AS SELECT, but has limited subquery support and no triggers or stored procedures. ACID transactions are supported since Hive 0.14.
+What is Slowly Changing Dimension Type 2 (SCD Type 2) in Hive?
+Answer: SCD Type 2 tracks historical changes in dimensions by maintaining multiple records with start/end dates and a flag for the current record. Example:
+sql
+
+Copy
+CREATE TABLE dim_customer (
+  customer_id INT,
+  name STRING,
+  address STRING,
+  start_date DATE,
+  end_date DATE,
+  is_active BOOLEAN
+)
+PARTITIONED BY (partition_date STRING)
+STORED AS ORC;
+New records are inserted with is_active=true and end_date=NULL, while old records are updated with end_date and is_active=false.
+How do you implement SCD Type 2 in Hive?
+Answer: Use a combination of INSERT and UPDATE with ACID transactions:
+sql
+
+Copy
+-- Update existing record
+UPDATE dim_customer
+SET end_date = CURRENT_DATE, is_active = false
+WHERE customer_id = 1001 AND is_active = true;
+
+-- Insert new record
+INSERT INTO dim_customer
+SELECT 1001, 'New Name', 'New Address', CURRENT_DATE, NULL, true, '2025-05-22';
+Enable ACID with hive.txn.manager=org.apache.hadoop.hive.ql.lockmgr.DbTxnManager.
+How do you delete records in Hive for SCD Type 2?
+Answer: For managed tables with ACID enabled, use:
+sql
+
+Copy
+DELETE FROM dim_customer WHERE customer_id = 1001 AND is_active = false;
+For external tables, delete underlying HDFS files manually or use ALTER TABLE DROP PARTITION for partitioned data.
+What is the file-level architecture of Hive tables?
+Answer: Hive tables store data in HDFS (e.g., /user/hive/warehouse/<database>/<table> for managed tables). File formats include:
+Text: Plain text, delimited (e.g., CSV).
+SequenceFile: Binary, splittable, row-oriented.
+ORC: Optimized Row Columnar, columnar storage with compression.
+Parquet: Columnar, efficient for analytics.
+Avro: Schema-based, row-oriented. Partitions create subdirectories (e.g., /table/partition_date=2025-05-22).
+How do you delete a Hive table’s data at the file level?
+Answer:
+Managed Tables: DROP TABLE table_name deletes metadata and HDFS data.
+External Tables: DROP TABLE deletes only metadata; manually delete HDFS files using:
+bash
+
+Copy
+hdfs dfs -rm -r /path/to/external_table
+Partitions: Drop specific partitions:
+sql
+
+Copy
+ALTER TABLE table_name DROP PARTITION (partition_date='2025-05-22');
+Recover managed table data from .TRASH if needed.
+What are the differences between managed and external tables in Hive?
+Answer:
+Managed Tables: Data and metadata managed by Hive; stored in /user/hive/warehouse; deleted with DROP TABLE.
+External Tables: Data stored outside Hive’s warehouse (e.g., custom HDFS path); only metadata deleted on DROP TABLE.
+ACID: Managed tables support ACID; external tables don’t.
+Use Case: Managed for internal use; external for shared data.
+How does Hive handle partitioning, and why is it important?
+Answer: Partitioning divides tables into subdirectories based on column values (e.g., partition_date=2025-05-22). It reduces query scan scope, improving performance. Example:
+sql
+
+Copy
+CREATE TABLE sales (
+  order_id INT,
+  amount FLOAT
+)
+PARTITIONED BY (region STRING);
+Choose partitions based on common filters.
+What is bucketing, and how does it differ from partitioning?
+Answer: Bucketing splits data into fixed-size buckets based on a hash function, ensuring even distribution. Differences:
+Partitioning: Divides data into directories based on column values; uneven sizes possible.
+Bucketing: Divides data into fixed buckets; reduces skew.
+Use Case: Bucketing for joins; partitioning for filtering. Example:
+sql
+
+Copy
+SET hive.enforce.bucketing=true;
+CREATE TABLE sales (order_id INT) CLUSTERED BY (order_id) INTO 10 BUCKETS;
+```[](https://medium.com/%40john_tringham/explained-apache-hive-5c801f543cb6)
+How do you enable ACID transactions in Hive?
+Answer: Configure hive-site.xml:
+xml
+
+Copy
+<property>
+  <name>hive.txn.manager</name>
+  <value>org.apache.hadoop.hive.ql.lockmgr.DbTxnManager</value>
+</property>
+<property>
+  <name>hive.support.concurrency</name>
+  <value>true</value>
+</property>
+Use ORC format for tables:
+sql
+
+Copy
+CREATE TABLE my_table (...) STORED AS ORC TBLPROPERTIES ('transactional'='true');
+```[](https://www.databricks.com/glossary/apache-hive)
+How do you optimize Hive query performance in BigQuery?
+Answer: Hive doesn’t run natively on BigQuery, but for Hive-like workloads:
+Use partitioning and clustering.
+Optimize joins with SORT BY or bucketing.
+Leverage ORC/Parquet formats for compression.
+Cache frequently accessed tables in BigQuery’s query cache.
+How do you recover a deleted Hive table?
+Answer:
+Managed Tables: Recover data from .TRASH:
+bash
+
+Copy
+hdfs dfs -mv /user/hive/.Trash/<table> /user/hive/warehouse/<table>
+Recreate metadata with CREATE TABLE.
+External Tables: Restore HDFS files if backed up; recreate metadata.
+What is Hive’s ObjectInspector, and how is it used?
+Answer: ObjectInspector analyzes the structure of columns and complex objects (e.g., ARRAY, MAP) for serialization/deserialization. Used in UDFs to access internal data fields dynamically.
+How do you implement a custom UDF in Hive?
+Answer: Write a Java class extending UDF:
+java
+
+Copy
+public class MyUDF extends UDF {
+  public String evaluate(String input) {
+    return input.toUpperCase();
+  }
+}
+Register and use:
+sql
+
+Copy
+ADD JAR /path/to/myudf.jar;
+CREATE TEMPORARY FUNCTION my_udf AS 'com.example.MyUDF';
+SELECT my_udf(name) FROM customers;
+How does Hive handle large-scale joins?
+Answer:
+Use Map-Side Joins for small tables (hive.auto.convert.join=true).
+Bucket both tables on join keys.
+Partition data to reduce shuffle.
+Use SKEW JOIN for skewed data.
+What are the supported file formats in Hive, and their differences?
+Answer:
+Text: Simple, human-readable, but large and slow.
+SequenceFile: Binary, splittable, row-oriented; good for MapReduce.
+ORC: Columnar, compressed, optimized for analytics.
+Parquet: Columnar, schema evolution support, widely compatible.
+Avro: Row-based, schema-based, good for serialization.
+How do you handle schema evolution in Hive?
+Answer: Use ALTER TABLE to add columns:
+sql
+
+Copy
+ALTER TABLE my_table ADD COLUMNS (new_col STRING);
+ORC/Parquet support schema evolution; ensure backward compatibility for queries.
+How do you delete a partition in Hive?
+Answer:
+sql
+
+Copy
+ALTER TABLE my_table DROP PARTITION (partition_date='2025-05-22');
+For external tables, manually remove HDFS partition directory:
+bash
+
+Copy
+hdfs dfs -rm -r /path/to/partition_date=2025-05-22
+```[](https://www.databricks.com/glossary/apache-hive)
+What is HCatalog, and how does it integrate with Hive?
+Answer: HCatalog is a table management layer that exposes Hive’s metastore to tools like Pig and MapReduce, enabling seamless data sharing.
+How do you handle skewed data in Hive?
+Answer:
+Use bucketing to distribute data evenly.
+Enable SKEW JOIN:
+sql
+
+Copy
+SET hive.optimize.skewjoin=true;
+Split large partitions into smaller ones.
+What is the role of the Hive compiler?
+Answer: The compiler converts HiveQL into an execution plan (DAG of MapReduce/Tez/Spark tasks). It creates an abstract syntax tree (AST), checks compatibility, and optimizes the plan.
+How do you configure Hive for dynamic partitioning?
+Answer: Enable dynamic partitioning:
+sql
+
+Copy
+SET hive.exec.dynamic.partition=true;
+SET hive.exec.dynamic.partition.mode=nonstrict;
+Example:
+sql
+
+Copy
+INSERT INTO TABLE sales PARTITION (region) SELECT order_id, amount, region FROM source_table;
+```[](https://www.edureka.co/blog/interview-questions/hive-interview-questions/)
+What are the limitations of Hive for real-time processing?
+Answer: Hive is designed for batch processing, not OLTP. It has high latency, no row-level updates (except with ACID), and no support for triggers or stored procedures.
+How do you archive partitions in Hive?
+Answer: Use Hadoop Archive (HAR):
+sql
+
+Copy
+SET hive.archive.enabled=true;
+ARCHIVE TABLE my_table PARTITION (partition_date='2025-05-22') TO '/archive/path';
+Reduces file count but may increase query latency.
+How does Hive integrate with Apache Spark?
+Answer: Set hive.execution.engine=spark in hive-site.xml. HiveQL queries are executed as Spark jobs, leveraging Spark’s in-memory processing for faster execution.
+What is the difference between Hive and Apache Impala?
+Answer:
+Hive: Batch processing, converts queries to MapReduce/Tez/Spark, high latency.
+Impala: In-memory, low-latency queries, no MapReduce dependency.
+Use Case: Hive for ETL; Impala for interactive queries.
+How do you monitor Hive query performance?
+Answer:
+Use EXPLAIN to analyze query plans.
+Check YARN resource manager logs.
+Enable metrics in hive-site.xml and integrate with tools like Graphite or Datadog.
+How do you handle NULL values in Hive?
+Answer: Hive treats NULL and null the same. Use COALESCE or NVL:
+sql
+
+Copy
+SELECT COALESCE(amount, 0) FROM sales;
+```[](https://www.developerindian.com/developer/top-apache-hive-interview-questions)
+What is the role of Hive’s SerDe?
+Answer: SerDe (Serializer/Deserializer) handles data serialization to/from Hive tables. Example for JSON:
+sql
+
+Copy
+CREATE TABLE json_table (...) ROW FORMAT SERDE 'org.apache.hive.hcatalog.data.JsonSerDe';
+```[](https://intellipaat.com/blog/interview-question/hive-interview-questions/)
+How do you optimize Hive for small files?
+Answer:
+Use SequenceFile or ORC to combine small files.
+Enable CONCATENATE:
+sql
+
+Copy
+ALTER TABLE my_table CONCATENATE;
+Adjust hive.merge.mapfiles=true for merging.
+How do you implement SCD Type 1 in Hive?
+Answer: Overwrite existing records with updates:
+sql
+
+Copy
+INSERT OVERWRITE TABLE dim_customer
+SELECT customer_id, name, address FROM source_table;
+No history is maintained, unlike SCD Type 2.
+What is the difference between Hive and HBase?
+Answer:
+Hive: Data warehouse, batch processing, SQL-like queries.
+HBase: NoSQL database, real-time, low-latency access.
+Use Case: Hive for analytics; HBase for transactional data.
+How do you handle complex data types in Hive?
+Answer: Use ARRAY, MAP, or STRUCT:
+sql
+
+Copy
+CREATE TABLE complex_table (
+  id INT,
+  details MAP<STRING, STRING>,
+  items ARRAY<INT>
+);
+Access with details['key'] or items[0].
+How do you enable bucketing in Hive?
+Answer: Set:
+sql
+
+Copy
+SET hive.enforce.bucketing=true;
+Create table:
+sql
+
+Copy
+CREATE TABLE my_table (...) CLUSTERED BY (col_name) INTO 10 BUCKETS;
+```[](https://career.guru99.com/top-30-hive-interview-questions/)
+What is the default file format in Hive?
+Answer: Text format, delimited by ^A (Ctrl-A). ORC or Parquet are preferred for performance.
+How do you change a column’s data type in Hive?
+Answer:
+sql
+
+Copy
+ALTER TABLE my_table CHANGE column_name column_name NEW_TYPE;
+Example: Change age from STRING to INT:
+sql
+
+Copy
+ALTER TABLE students CHANGE age age INT;
+```[](https://www.projectpro.io/article/hive-interview-questions-and-answers-for-2018/246)
+How do you integrate Hive with Apache Kafka?
+Answer: Use Hive’s streaming API or external tables with Kafka data in HDFS:
+sql
+
+Copy
+CREATE EXTERNAL TABLE kafka_table (...)
+ROW FORMAT SERDE 'org.apache.hadoop.hive.kafka.KafkaSerDe'
+LOCATION '/kafka/data';
+What is the role of HiveServer2?
+Answer: HiveServer2 handles client connections via JDBC/ODBC, supports concurrency, and executes queries through the driver.
+How do you handle data skew in Hive joins?
+Answer:
+Use SKEW JOIN:
+sql
+
+Copy
+SET hive.optimize.skewjoin=true;
+Bucket join keys.
+Redistribute data with DISTRIBUTE BY.
+What is the difference between Hive and Delta Lake?
+Answer:
+Hive: SQL-like, batch processing, no native ACID.
+Delta Lake: ACID-compliant, supports time-travel, better for streaming.
+Use Case: Delta Lake for real-time; Hive for analytics.
+How do you implement a Hive view?
+Answer:
+sql
+
+Copy
+CREATE VIEW sales_view AS
+SELECT region, SUM(amount) AS total FROM sales GROUP BY region;
+Views are logical, not materialized, and reflect underlying table changes.
+How do you manage Hive’s metastore in a remote setup?
+Answer: Configure hive.metastore.uris in hive-site.xml to point to a remote RDBMS (e.g., MySQL):
+xml
+
+Copy
+<property>
+  <name>hive.metastore.uris</name>
+  <value>thrift://<host>:9083</value>
+</property>
+```[](https://u-next.com/blogs/interview-questions/53-crucial-hive-interview-questions-with-answers-2022/)
+How do you optimize Hive for ORC files?
+Answer:
+Enable predicate pushdown: hive.optimize.ppd=true.
+Use compression: orc.compress=SNAPPY.
+Create indexes: CREATE INDEX idx_name ON TABLE my_table (col);
+What is the impact of dropping a managed table vs. an external table?
+Answer:
+Managed: Deletes metadata and HDFS data.
+External: Deletes only metadata; HDFS data remains.
+How do you handle Hive query failures?
+Answer:
+Check logs in hive.log or YARN resource manager.
+Use EXPLAIN to analyze query plan.
+Increase resources: hive.tez.container.size.
+How do you implement incremental data loading in Hive?
+Answer: Use dynamic partitioning or incremental inserts:
+sql
+
+Copy
+INSERT INTO TABLE sales PARTITION (partition_date)
+SELECT order_id, amount, '2025-05-22' FROM source_table
+WHERE update_date > (SELECT MAX(update_date) FROM sales);
+How do you integrate Hive with Apache Hudi for SCD Type 2?
+Answer: Use Hudi’s Merge-on-Read (MOR) tables for SCD Type 2:
+sql
+
+Copy
+CREATE TABLE dim_customer_hudi (
+  customer_id INT,
+  name STRING,
+  address STRING,
+  start_date DATE,
+  end_date DATE,
+  is_active BOOLEAN
+)
+WITH (
+  'connector' = 'hudi',
+  'table.type' = 'MERGE_ON_READ'
+);
+Update records using Hudi’s upsert capabilities.
+Sample Artifact for SCD Type 2
+dim_customer.sql
+sql
+Show inline
+Key Differences Highlighted
+Managed vs. External Tables:
+Managed: Controlled by Hive, deleted with DROP TABLE.
+External: Data persists in HDFS after DROP TABLE.
+Hive vs. Impala:
+Hive: Batch-oriented, high latency.
+Impala: In-memory, low latency.
+Hive vs. Delta Lake:
+Hive: Limited ACID, batch-focused.
+Delta Lake: Full ACID, supports streaming.
+Partitioning vs. Bucketing:
+Partitioning: Directory-based, filter-driven.
+Bucketing: Hash-based, even distribution.
+ORC vs. Parquet:
+ORC: Optimized for Hive, predicate pushdown.
+Parquet: Broader compatibility, schema evolution.
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++

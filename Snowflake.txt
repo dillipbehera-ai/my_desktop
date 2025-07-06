@@ -1,0 +1,749 @@
+Archetect-------🔁🔁🔁🔁🔁
+A. Storage Layer🔁🔁🔁🔁🔁🔁🔁🔁🔁🔁🔁🔁🔁
+Supports all data types: Structured (CSV), semi-structured (JSON, Avro, Parquet), and unstructured (in preview).
+
+Columnar format: Enables efficient compression and fast retrieval.
+
+Automatic:
+
+Compression: Uses columnar encoding.
+
+Encryption: End-to-end AES-256.
+
+Clustering: Maintains micro-partition pruning.
+
+Decoupled: Shared data architecture → multiple compute clusters can access same underlying data.
+
+Time Travel & Failsafe:
+
+Time Travel = up to 90 days rollback
+
+Failsafe = 7-day backup for disaster recovery
+
+⚙️ B. Compute Layer (Virtual Warehouses)🔁🔁🔁🔁🔁🔁🔁🔁🔁🔁🔁
+Virtual Warehouses = MPP clusters (multi-cluster architecture)
+
+Fully decoupled from storage: You can spin up multiple warehouses on same data.
+
+Key Features:
+
+Auto-suspend / auto-resume: Reduce costs by turning off idle compute
+
+Multi-cluster Warehouse: Automatically scales out during concurrency spikes
+
+Query Isolation: Each warehouse runs independently → no resource contention
+
+Elastic Scaling: Resize (S → XL) dynamically
+
+🔐 C. Cloud Services Layer🔁🔁🔁🔁🔁🔁🔁🔁🔁🔁🔁🔁
+Manages all coordination logic:
+
+Query Parsing and Optimization
+
+Cost-based optimization engine
+
+Caching of query plans
+
+Transaction Management
+
+ACID compliance with snapshot isolation
+
+Security:
+
+RBAC, MFA, OAuth, SSO, encryption key rotation
+
+Metadata Services:
+
+Tracks micro-partitions, stats, schema evolution
+
+API Gateway & Interfaces:
+
+JDBC, ODBC, REST API, SnowSQL CLI
+
+Global Services:
+
+Data sharing (Snowflake Marketplace, Secure Share)
+
+Cross-region/cross-cloud replication
+
+Failover & business continuity support
+
+🔁 Engine-Specific Features
+🚀 Query Engine🔁🔁🔁🔁🔁🔁🔁🔁🔁🔁🔁🔁🔁
+Compiled at runtime: Intermediate representation is generated per query.
+
+Massively Parallel Processing (MPP): Partitions are scanned across nodes.
+
+Caching layers:
+
+Result Cache: For repeated identical queries.
+
+Metadata Cache: For structure and access control.
+
+Data Cache: Local disk cache for warehouse nodes.
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+✅✅✅✅✅✅✅✅✅✅✅✅✅Snowflake Query Lifecycle (SELECT Query)✅✅✅✅✅✅✅✅✅✅✅✅✅
+SELECT dept, COUNT(*) FROM emp WHERE location = 'NY' GROUP BY dept;
+
+🔹 Step-by-Step Lifecycle
+1.✅✅✅✅ Client Interaction
+User submits the SQL via UI (Snowsight), JDBC/ODBC, Python connector, etc.
+
+Snowflake receives the SQL via Cloud Services Layer.
+
+2. ✅✅✅✅Authentication & Authorization
+Cloud Services checks:
+
+User credentials
+
+Roles & privileges on objects (e.g., table emp)
+
+If access is denied → query fails.
+
+3. ✅✅✅✅Query Parsing & Compilation
+SQL is parsed to validate syntax.
+
+Semantic analysis ensures tables, columns, data types exist.
+
+Query is compiled into an abstract syntax tree (AST).
+
+4. ✅✅✅✅Optimization (by Cloud Services Layer)
+Query optimizer builds an execution plan:
+
+Uses table metadata, stats, clustering info
+
+Applies pruning (e.g., partition, micro-partition pruning)
+
+Chooses join order, access path, etc.
+
+5. ✅✅✅✅Virtual Warehouse Assignment
+A Virtual Warehouse (compute cluster) is assigned.
+
+May auto-resume or auto-scale if needed.
+
+Multiple queries can run on the same or different warehouses.
+
+Query is sent to compute layer for execution.
+
+6.✅✅✅✅ Data Access (Storage Layer)
+Warehouse reads required data from remote storage (S3/Blob/GCS).
+
+Uses micro-partition pruning to fetch only relevant columns/rows.
+
+Columnar data is decompressed and loaded into memory.
+
+7. ✅✅✅✅Query Execution (Compute Layer)
+Data is processed in vectorized batches.
+
+Filtering (WHERE location = 'NY')
+
+Grouping (GROUP BY dept)
+
+Aggregation (COUNT(*))
+
+Results are kept in memory (cached if reused).
+
+8. ✅✅✅✅Result Delivery
+Final result is returned to Cloud Services Layer.
+
+Cloud Services sends results back to the user/client.
+
+UI shows data / connector returns JSON, CSV, etc.
+
+9.✅✅✅✅ Post-Query Tasks
+Query history logged (viewable in Snowsight).
+
+Metadata updated (for caching, time travel, etc.).
+
+Compute auto-suspends if idle (if configured).
+
+
+✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅
+
+✅ Performance Optimizations Happening Automatically:✅✅✅✅✅✅✅✅✅✅✅✅
+
+Micro-partition pruning
+
+Column pruning
+
+Result caching
+
+Metadata indexing
+
+Warehouse auto-scaling
+
+Query result reuse (if identical query was run recently)
+🧱🧱🧱🧱🧱🧱🧱🧱🧱🧱🧱🧱🧱🧱🧱🧱TYPE oF TABLE🧱🧱🧱🧱🧱🧱🧱🧱🧱🧱🧱🧱🧱🧱🧱🧱🧱🧱🧱🧱🧱++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+1. 🧱🧱🧱🧱Permanent Table (Default)
+🧱 Purpose: Standard table stored in Snowflake-managed storage (S3/Blob/GCS).
+
+CREATE OR REPLACE TABLE IF NOT EXISTS sales_data (
+  id INT NOT NULL,
+  amount NUMBER DEFAULT 0,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+)
+CLUSTER BY (id)
+DATA_RETENTION_TIME_IN_DAYS = 7
+WITH CHANGE_TRACKING = TRUE
+COMMENT = 'Main sales table'
+COPY GRANTS;
+💡 Used for long-term data.
+
+📂 Storage: Internal Snowflake storage on AWS S3.
+
+🔍 Use DATA_RETENTION, CLUSTER BY, CHANGE_TRACKING for performance + CDC.
+
+🔷 2.🧱🧱🧱🧱🧱🧱 Temporary Table
+🧱 Purpose: Session-scoped table, auto-drops at session end.
+
+CREATE TEMPORARY TABLE temp_users (
+  user_id INT,
+  region STRING
+)
+COMMENT = 'Used for intermediate session logic';
+💡 Used for ETL scratch work, staging.
+
+📂 Storage: Internal (S3), but metadata only lasts for the session.
+
+🔍 Can't be shared or recovered after session ends.
+
+🔷 3.🧱🧱🧱🧱🧱🧱🧱 Transient Table
+🧱 Purpose: Like permanent, but no Fail-safe; cheaper.
+
+
+CREATE TRANSIENT TABLE stg_orders (
+  order_id INT,
+  status STRING
+)
+DATA_RETENTION_TIME_IN_DAYS = 0
+COMMENT = 'Intermediate table without fail-safe';
+💡 Used when Time Travel is needed but Fail-safe isn’t (cheaper).
+
+📂 Storage: Internal Snowflake storage, no fail-safe region.
+
+🔍 Ideal for staging, temporary analytical results.
+
+🔷 4. 🧱🧱🧱🧱🧱🧱🧱External Table
+🧱 Purpose: Table pointing to external data in S3/Blob/GCS.
+
+Edit
+CREATE OR REPLACE EXTERNAL TABLE ext_clickstream (
+  user_id STRING AS (VALUE:user_id::STRING),
+  event_time TIMESTAMP AS (VALUE:event_time::TIMESTAMP),
+  event_type STRING AS (VALUE:event_type::STRING)
+)
+PARTITION BY (TO_DATE(event_time))
+LOCATION = @my_s3_stage/clicks/
+FILE_FORMAT = (TYPE = 'JSON')
+AUTO_REFRESH = TRUE
+INTEGRATION = 's3_auto_notify_int'
+COMMENT = 'External table for raw clickstream data';
+💡 Used for querying external files without loading.
+
+📂 Storage: S3 (or Azure/GCS) — Snowflake only reads, doesn’t own data.
+
+🔍 Best for raw zone or semi-structured logs, with auto metadata refresh.
+
+🔷 5.🧱🧱🧱🧱🧱🧱 Materialized View (Not a table but related)🔷🔷🔷🔷🔷🔷🔷🔷🔷🔷🔷🔷🔷🔷🔷
+ Materialized View (MV) is a physically stored query result that Snowflake automatically keeps updated as the base tables change. Unlike regular views, MVs improve read/query performance for repetitive or complex aggregations.
+
+🔧 How it Works:🔷🔷🔷
+You define a view like a query (e.g., aggregation or filter).
+
+Snowflake stores and auto-refreshes the view when the base data changes.
+
+Queries on the MV are faster because they hit precomputed results.
+
+
+Auto-Refresh Logic:🔷🔷🔷🔷🔷🔷🔷
+Snowflake tracks base table changes using internal mechanisms (similar to Streams).
+
+Refresh is incremental and automatic (but not real-time; there can be slight lag).
+
+You can check refresh status:
+
+
+CREATE OR REPLACE MATERIALIZED VIEW", 🔷🔷🔷🔷🔷🔷🔷🔷🔷
+     "Creates or replaces a materialized view that stores results physically.", 
+
+     "Use CREATE MATERIALIZED VIEW to avoid overwriting; use DROP first otherwise."),
+
+    ("IF NOT EXISTS", 
+     "Prevents error if view already exists.", 
+     "Alternative: Manually check existence using SHOW VIEWS."),
+
+    ("COLUMN ALIASES", 
+     "Assigns names to view output columns.", 
+     "Alternative: Use AS clauses inside SELECT statement."),
+
+    ("SECURE", 
+     "Marks the view as secure (prevents data leakage in shared environments).", 
+     "Alternative: Non-secure view (default); secure is better for shared data."),
+
+    ("COMMENT", 
+     "Adds metadata comment to the view.", 
+     "Alternative: Use external documentation or metadata tools."),
+
+    ("WAREHOUSE = <name>", 
+     "Specifies the warehouse to use for automatic refreshes.", 
+     "Required only for auto-refresh; otherwise not needed."),
+
+    ("ENABLE_AUTO_REFRESH = TRUE | FALSE", 
+     "Defines whether the view auto-refreshes when base data changes.", 
+     "Default is TRUE unless explicitly disabled."),
+
+    ("PRIMARY KEY", 
+     "Optionally define a primary key (not enforced, metadata only).", 
+     "Used for documentation or data modeling clarity."),
+
+    ("CLUSTER BY", 
+     "Applies clustering keys to optimize refresh and pruning.", 
+     "Alternative: Let Snowflake auto-handle clustering if not critical.")
+
+💡 Used for speeding up repeated aggregates.
+
+📂 Storage: Internal, auto-maintained.
+
+🔍 Good for dashboards and BI reports.
+
+✅ Summary Table
+Table Type	Storage	Duration	Use Case
+Permanent	Snowflake-managed (S3)	Forever	Core business tables
+Transient	Snowflake (no fail-safe)	Manual drop	Staging, temporary results
+Temporary	Snowflake (session-only)	Session ends	Scratch/ETL logic
+External	AWS S3 / Azure / GCS	Depends on files	Query raw external data
+Materialized View	Snowflake internal	Maintained by engine	Fast read on computed queries
+✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅
+1. Snowflake Development & Scripting✅✅
+✅✅✅✅✅✅✅✅✅✅✅✅✅
+SnowSQL: Command-line client for running SQL queries.
+
+✅✅✅✅Snowpipe✅✅✅✅✅✅: Automated data ingestion from AWS S3.
+
+Streams & Tasks✅✅✅✅✅✅✅✅✅✅✅✅: Change data capture (CDC) and scheduling.
+
+Stored Procedures✅✅✅✅✅✅: For complex logic using Snowflake Scripting.
+
+User-Defined Functions (UDFs)✅✅✅✅✅✅: Reusable SQL/Python logic.
+
+MERGE Statements✅✅✅✅✅✅: For UPSERT operations.
+
+Security Policies✅✅✅✅✅✅: Row-level, column-level security.
+
+Example:::-----✅✅✅✅✅✅✅ 
+SCENARIO: Ingest Incremental Customer Data✅ ✅  from AWS S3 to Snowflake Table Using Snowpipe, Stream, Task, MERGE
+✅ ✅ ✅ ✅ Step 1✅ ✅ : Create the Target Table
+
+CREATE OR REPLACE TABLE customer_dim (
+  cust_id INT,
+  name STRING,
+  email STRING,
+  updated_at TIMESTAMP
+);
+✅ ✅ ✅ ✅ Step 2✅ ✅ ✅ : Create a Stage for S3
+
+CREATE OR REPLACE STAGE customer_stage
+URL='s3://mybucket/customer/'
+STORAGE_INTEGRATION = my_s3_integration;
+✅ ✅ ✅ ✅ Step 3✅ ✅ ✅ : Create Snowpipe for Auto-Ingest
+
+CREATE OR REPLACE PIPE customer_pipe
+AS
+COPY INTO staging_customer_data
+FROM @customer_stage
+FILE_FORMAT = (TYPE = 'CSV' FIELD_OPTIONALLY_ENCLOSED_BY='"');
+👉 When new files arrive in S3, Snowpipe loads them into a staging table.
+
+✅ ✅ ✅ ✅ Step 4✅ ✅ ✅ : Create Staging Table
+
+CREATE OR REPLACE TABLE staging_customer_data (
+  cust_id INT,
+  name STRING,
+  email STRING,
+  updated_at TIMESTAMP
+);
+✅ ✅ ✅ ✅ Step 5✅ ✅ ✅ : Create Stream on Staging Table
+
+CREATE OR REPLACE STREAM customer_stream ON TABLE staging_customer_data;
+👉 The stream tracks INSERT/UPDATE/DELETE changes on the staging table.
+
+✅ ✅ ✅ ✅ Step 6: Create a Task to Merge Changes✅ ✅ ✅ ✅ 
+
+CREATE OR REPLACE TASK customer_merge_task
+WAREHOUSE = my_wh
+SCHEDULE = '5 MINUTE'
+AS
+MERGE INTO customer_dim AS target
+USING (
+  SELECT * FROM customer_stream
+) AS src
+ON target.cust_id = src.cust_id
+WHEN MATCHED THEN
+  UPDATE SET target.name = src.name, target.email = src.email, target.updated_at = src.updated_at
+WHEN NOT MATCHED THEN
+  INSERT (cust_id, name, email, updated_at)
+  VALUES (src.cust_id, src.name, src.email, src.updated_at);
+
+✅✅ ✅  Step 7: Start the Task✅ ✅ 
+
+ALTER TASK customer_merge_task RESUME;
+
+🧠 Recap of How This Works Together
+Component	Role
+Snowpipe	Auto-loads new files into staging table from S3
+Stream	Tracks new rows in staging table (CDC)
+Task	Schedules and executes the merge
+MERGE	Upserts into main table
+Stored Procedures / UDFs	(Optional) Used for complex logic in tasks
+Security Policies	Applied on customer_dim if sensitive data (e.g., RLS on email)
+
+
+
+
+2.✅✅ ✅ Performance & Optimization✅✅ ✅✅✅ ✅✅✅ ✅✅✅ ✅✅✅ ✅✅✅ ✅✅✅ ✅✅✅ ✅
+
+✅✅✅✅Compute Optimization:✅✅✅✅ Warehouse sizing, auto-suspend/resume.
+Technique	Example
+🏗️ Warehouse Sizing	Use XLARGE only for large loads; XSMALL for ad-hoc queries → cost efficient
+⏸️ Auto-Suspend	Set auto-suspend to 60 SECONDS for dev warehouse:
+sql ALTER WAREHOUSE dev_wh SET AUTO_SUSPEND = 60;	
+▶️ Auto-Resume	Snowflake auto-resumes warehouse on query → no manual action needed
+🧠 Scaling Policy	Enable multi-cluster for concurrency:
+sql ALTER WAREHOUSE my_wh SET MAX_CLUSTER_COUNT = 3;	
+
+✅✅✅✅Storage Optimization:✅✅✅✅ Partitioning, clustering, pruning.
+Technique	Example
+🧱 Micro-Partition Pruning	Use WHERE filters on partitioned columns:
+sql SELECT * FROM orders WHERE order_date = '2024-01-01';	
+🧩 Cluster Keys	Add cluster key for large range scans:
+sql CREATE TABLE sales CLUSTER BY (region, sale_date);	
+🧹 Time Travel Retention	Lower it from 90 to 1 day for staging:
+sql CREATE TABLE tmp_orders DATA_RETENTION_TIME_IN_DAYS = 1;	
+🗑️ Drop Unused Staging Tables	Monitor and DROP unused dev tables to save space
+
+
+✅✅✅✅Query Performance Tuning:✅✅✅✅ Result caching, metadata usage.
+✅✅✅✅Query Performance Tuning✅✅✅✅✅✅
+Technique	Example
+⚡ Result Caching	Run same query twice → 2nd run is instant
+sql SELECT COUNT(*) FROM customer_dim;	
+📄 Metadata Cache	Use SHOW TABLES, DESCRIBE TABLE – no compute is used
+🔍 Avoid SELECT *	Instead use column list:
+sql SELECT cust_id, name FROM customer_dim;	
+📌 Use CTAS for Optimization	Materialize subqueries:
+sql CREATE TABLE tmp AS SELECT ...; – faster than nested queries
+
+
+3. ✅✅✅✅Data Architecture✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅
+Data Lake Integration: AWS S3 + Snowflake external stages.
+
+Data Modeling: Dimensional/semantic models in EDW.
+
+Materialized & Incremental Models: Via dbt Cloud.
+
+4.✅✅✅✅✅✅✅✅ Governance & Security✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅
+RBAC (Role-Based Access Control): Role hierarchy and permissioning.
+
+Data Encryption: At-rest and in-transit encryption.
+
+Tagging & Classification: Metadata tagging for governance.
+
+EXAMPLE-----✅✅✅✅✅✅✅✅
+
+✅ 1. RBAC (Role-Based Access Control)✅✅✅✅✅✅✅✅
+How It Works:
+Snowflake uses a role hierarchy. Users are assigned roles → roles are granted privileges → roles can inherit other roles.
+
+Example	Description
+CREATE ROLE analyst;	Create a new role for analysts.
+GRANT SELECT ON DATABASE sales TO ROLE analyst;	Allow analyst role to query data.
+GRANT ROLE analyst TO USER john_doe;	Assign analyst role to user.
+GRANT analyst TO ROLE senior_analyst;	Build hierarchy (inheritance).
+SHOW GRANTS TO USER john_doe;	View effective privileges for user.
+
+✅ Best Practice: Never assign privileges directly to users — use roles.
+
+✅ 2. Data Encryption (At-Rest and In-Transit)✅✅✅✅✅✅✅✅
+How It Works:
+Snowflake automatically encrypts all data using AES-256 at rest and TLS 1.2+ in transit. You can also use customer-managed keys (CMK).
+
+Example	Description
+Transparent Encryption	No user action needed — built-in and automatic.
+CREATE STORAGE INTEGRATION WITH ENCRYPTION = 'AWS_SSE_KMS';	Use CMK for S3 external stage.
+External Stage:	
+sql CREATE STAGE ext_stage ... ENCRYPTION = (TYPE = 'AWS_SSE_KMS');	Manually control S3 encryption in Snowflake.
+Data Masking + Encryption	Use masking policies to protect PII columns (next example).
+View Audit Logs	Snowflake tracks access and key rotation events internally.
+
+✅ Best Practice: Combine encryption with RBAC, masking, and audit logging.
+
+✅ 3. Tagging & Classification✅✅✅✅✅✅✅✅
+How It Works:
+Snowflake allows metadata tagging of objects (tables, columns) and supports classification of sensitive data for governance and lineage.
+
+Example	Description
+CREATE TAG pii_tag STRING COMMENT = 'PII fields';	Create a custom tag.
+ALTER TABLE customer ADD TAG pii_tag = 'email';	Tag a table with metadata.
+ALTER TABLE customer MODIFY COLUMN email SET TAG pii_tag = 'sensitive';	Tag individual column.
+SELECT * FROM TAG_REFERENCES_ALL_COLUMNS WHERE TAG_NAME = 'pii_tag';	Query all tagged columns.
+CREATE MASKING POLICY mask_email AS (val STRING) RETURNS STRING -> CASE WHEN CURRENT_ROLE() IN ('admin') THEN val ELSE '****' END;	Combine with masking for dynamic protection.
+
+✅ Best Practice: Tag sensitive data early, and use it for policy enforcement, data cataloging, and governance automation.
++++++++++++++++++++++++++++++++++++++++++
+
+5. ✅✅✅✅✅✅✅✅Orchestration & Integration✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅
+Snowpipe with S3 Triggers: Real-time ingestion.
+
+Integration with AWS Glue, Lambda: Data flows and ETL.
+
+Control-M / Airflow: Scheduling and orchestration of pipelines.
+
+dbt Cloud: DAGs, snapshots, auditing, deployments.
+
+6.✅✅✅✅✅✅✅✅ DevOps & DataOps✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅
+✅✅✅Code Versioning: GitHub/GitLab integration.
+
+Step-by-Step: GitHub/GitLab + Snowflake Integration✅✅✅✅✅✅✅✅
+
+
+✅ 1. Set Up Git Repository (GitHub/GitLab)✅✅✅
+Create a new repository on GitHub or GitLab.
+
+Structure your repo like this:
+
+pgsql
+Copy
+Edit
+snowflake-project/
+├── models/
+│   ├── dim_customer.sql
+│   └── fact_sales.sql
+├── scripts/
+│   └── load_customer.py  # Optional Python ETL
+├── deploy/
+│   └── create_roles.sql
+├── .gitignore
+├── README.md
+✅✅✅ 2. Clone Repo Locally
+bash
+Copy
+Edit
+git clone https://github.com/your_org/snowflake-project.git
+cd snowflake-project
+✅✅✅✅ 3. Configure Git Locally
+bash
+Copy
+Edit
+git config --global user.name "Your Name"
+git config --global user.email "your@email.com"
+✅✅✅✅ 4. Write and Track Files
+Example: SQL File
+sql
+Copy
+Edit
+-- models/dim_customer.sql
+CREATE OR REPLACE VIEW dim_customer AS
+SELECT cust_id, name, email
+FROM raw.customer_stg;
+Example: Python File
+python
+Copy
+Edit
+# scripts/load_customer.py
+import snowflake.connector
+conn = snowflake.connector.connect(...)
+cur = conn.cursor()
+cur.execute("COPY INTO raw.customer_stg FROM @s3_stage FILE_FORMAT = (TYPE = 'CSV')")
+✅✅✅✅ 5. Add Files to Git
+bash
+Copy
+Edit
+git status                        # See changes
+git add models/dim_customer.sql  # Stage file
+git add scripts/load_customer.py
+✅✅✅✅ 6. Commit Changes✅✅
+bash
+Copy
+Edit
+git commit -m "Add customer model and Python loader"
+✅ ✅✅✅7. Push to Remote Repo✅✅
+bash
+Copy
+Edit
+git push origin main  # or whichever branch
+
+++++✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅
+
+CI/CD Deployments: Teraform environments.✅✅✅✅✅✅✅✅✅✅
+
+Set Up GitHub Repository and Branching Strategy✅✅✅✅✅✅✅✅✅✅
+Initialize GitHub Repository:✅✅✅✅✅
+
+Create a new repository to store your Terraform configurations and Snowflake SQL scripts.
+
+Structure your repository with directories like /terraform/, /sql/, and /scripts/.
+
+Implement Branching Strategy:
+
+Use branches such as dev, test, and main to represent different environments.
+
+Developers create feature branches from dev and raise PRs for integration.
+
+🛠️ 2. Configure Terraform for Infrastructure as Code✅✅✅✅✅✅✅✅✅✅
+Write Terraform Modules:
+
+Define resources for Snowflake objects, AWS infrastructure, etc.
+
+Use modules for reusability and maintainability.
+
+Set Up Backend for State Management:
+
+Configure remote backend (e.g., AWS S3) to store Terraform state files securely.
+
+Define Workspaces:
+
+Use Terraform workspaces to manage different environments (dev, test, prod).
+
+🔄 3. Establish CI/CD Pipeline with GitHub Actions✅✅✅✅✅✅✅✅✅✅
+Create Workflow Files:
+
+Define .github/workflows/ci.yml for continuous integration.
+
+Define .github/workflows/cd.yml for continuous deployment.
+
+Implement CI Workflow (ci.yml):
+
+Trigger on PR creation and updates.
+
+Steps:
+
+Checkout code.
+
+Validate Terraform syntax: terraform validate.
+
+Format code: terraform fmt -check.
+
+Run unit tests for scripts.
+
+Implement CD Workflow (cd.yml):
+
+Trigger on merge to main branch.
+
+Steps:
+
+Checkout code.
+
+Initialize Terraform: terraform init.
+
+Plan changes: terraform plan.
+
+Apply changes: terraform apply (post-approval).
+
+🧾 4. Integrate ServiceNow for Change Management✅✅✅✅✅✅✅✅✅✅
+Set Up ServiceNow CI/CD Integration:
+
+Utilize ServiceNow's IntegrationHub or REST APIs to connect with GitHub Actions.
+
+Install necessary plugins or spokes in ServiceNow for CI/CD.
+
+Automate Change Request Creation:
+
+Configure GitHub Actions to send a POST request to ServiceNow API to create a CR upon PR merge.
+
+Include details like change type, description, and planned implementation date.
+
+Implement Approval Workflow:
+
+Set up approval gates in ServiceNow.
+
+The deployment proceeds only after the CR is approved.
+
+Update CR Status Post-Deployment:
+
+After successful deployment, GitHub Actions sends a request to update the CR status to "Implemented" or "Closed".
+
+✅ 5. Manage Pull Requests (PRs) and Change Requests (CRs)✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅
+Pull Request Workflow:
+
+Developers push feature branches and create PRs to dev or main.
+
+CI workflow runs automated checks.
+
+Team reviews and approves PRs.
+
+Change Request Workflow:
+
+Upon PR merge, a CR is automatically created in ServiceNow.
+
+CR undergoes approval process.
+
+Post-approval, CD workflow applies changes.
+
+CR status is updated accordingly.
+
+📊 6. Monitor and Audit Deployments✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅
+Logging and Notifications:
+
+Configure logs for each pipeline step.
+
+Set up notifications for pipeline successes or failures via email or chat integrations.
+
+Audit Trails:
+
+Maintain records of who approved and implemented changes.
+
+Use ServiceNow's reporting features for compliance and auditing.
++++++++++++++++++++++++++++
+✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅
+ A. Snowflake Admin-Level Optimizations (20)✅✅✅✅✅✅✅✅✅
+#	Optimization Technique	Example / Explanation
+1️⃣	Auto-Suspend Warehouses	ALTER WAREHOUSE my_wh SET AUTO_SUSPEND = 60;
+2️⃣	Auto-Resume Warehouses	Automatically resume compute on query → avoids manual start
+3️⃣	Use XSMALL/SMALL warehouses for dev	Reduces cost without impacting small workloads
+4️⃣	Monitor warehouse load/concurrency	Use WAREHOUSE_LOAD_HISTORY to adjust sizes
+5️⃣	Scale-out with multi-cluster warehouse	ALTER WAREHOUSE my_wh SET MAX_CLUSTER_COUNT = 5;
+6️⃣	Use Resource Monitors	CREATE RESOURCE MONITOR to enforce cost control
+7️⃣	Use separate warehouse per workload	Avoids query queueing and locking
+8️⃣	Schedule warehouse suspension overnight	Use TASK or script to pause when unused
+9️⃣	Keep warehouse size minimal with autoscale	Medium with 1–3 clusters is better than 3XL idle
+🔟	Archive staging tables with DATA_RETENTION_TIME = 1	Reduces storage cost
+1️⃣1️⃣	Drop temp & transient tables regularly	Prevents bloating INFORMATION_SCHEMA
+1️⃣2️⃣	Monitor Query History for slow jobs	Use QUERY_HISTORY and warehouse stats
+1️⃣3️⃣	Set up caching layers smartly	Result cache, metadata cache, data cache
+1️⃣4️⃣	Use appropriate virtual warehouse size	Don’t oversize for small tasks
+1️⃣5️⃣	Schedule housekeeping jobs	Clean logs, manage metadata weekly
+1️⃣6️⃣	Disable automatic clustering unless needed	Saves compute on large tables
+1️⃣7️⃣	Tune MAX_CONCURRENCY_LEVEL for critical workloads	Prevents warehouse queueing
+1️⃣8️⃣	Enable materialized views wisely	Only on slow, repetitive aggregations
+1️⃣9️⃣	Partition external tables by date	e.g., PARTITION BY TO_DATE($1:date)
+2️⃣0️⃣	Set roles with least privilege	Prevents misuse of powerful queries
+
+✅ B. Snowflake Coding-Level Optimizations (20)✅✅✅✅✅✅✅✅✅✅✅✅
+#	Optimization Technique	Example / Explanation
+1️⃣	Avoid SELECT *	Use SELECT column1, column2
+2️⃣	Filter on partitioned/pruned columns	WHERE event_date = CURRENT_DATE
+3️⃣	Push filters to subqueries	SELECT ... FROM (SELECT ... WHERE x = 5)
+4️⃣	Use CTAS (Create Table As Select)	Faster for intermediate results
+5️⃣	Rewrite correlated subqueries as joins	Reduces nested loops
+6️⃣	Use MERGE instead of DELETE + INSERT	Single-pass UPSERT
+7️⃣	Use EXPLAIN plan before tuning	Visualize bottlenecks
+8️⃣	Use result cache with idempotent queries	Repeatable SELECTs are free
+9️⃣	Use temp tables for heavy transformations	CREATE TEMP TABLE to materialize result
+🔟	Eliminate unnecessary DISTINCT/ORDER BY	Often costly on large data
+1️⃣1️⃣	Limit rows early	LIMIT 100 in dev/test
+1️⃣2️⃣	Avoid using UDFs in joins/filter	Push logic into SQL when possible
+1️⃣3️⃣	Use clustering keys wisely	On large fact tables → CLUSTER BY (region, date)
+1️⃣4️⃣	Use caching in Python scripts/notebooks	Don't requery raw S3 every time
+1️⃣5️⃣	Avoid full table scans	WHERE indexed_col = 'x'
+1️⃣6️⃣	Convert staging logic into views or pipelines	Simplifies chaining
+1️⃣7️⃣	Compress using VARIANT only when needed	Overhead for simple structured data
+1️⃣8️⃣	Optimize window functions	Use ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW explicitly
+1️⃣9️⃣	Use SNAPSHOT tables only when tracking history	Avoid on active high-churn tables
+2️⃣0️⃣	Modularize logic into stored procedures	Reduces repeated SQL logic
+
++++++++++++++++++++++++++++++++++++++++++++++
+
+
+

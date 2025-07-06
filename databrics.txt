@@ -1,0 +1,829 @@
+Section 1: Basics and Platform
+
+
+
+job failue-- Databricks > Job Run > Spark UI > Stages > Failed Task.---->
+4. If using a multi-task job (workflows):+++++++++++++++++
+Go to Workflows > Job > Runs > View Run Details
+
+
+
+
+Click "Rerun failed tasks"
+What is Databricks?-----✅✅ ✅ ✅ ✅ ✅ ✅ 
+Databricks is a cloud-based unified data analytics platform built on Apache Spark. It supports big data processing, machine learning, and collaborative data science.
++++++++++++++++++++++++++
+
+
+
+Top Reasons to Use Databricks Instead of Redshift or Snowflake✅ ✅ ✅ ✅ 
+++++++++++++++++++++++++++++++++++++++++++++++++
+Reason	Explanation
+1. Unified Platform (Lakehouse)
+Combines data lake + warehouse + AI into one platform—no need for separate tools for ML, BI, and ETL.
+2. Advanced ML & AI Support
+Native support for MLflow, distributed ML training, and seamless integration with notebooks (Python, Scala, etc.).
+3. Delta Lake for ACID on Data Lakes---	Brings ACID transactions, time travel, schema enforcement on S3/ADLS, making data lakes reliable like warehouses.
+4. Open Source & Open Format---	
+Uses open formats like Parquet/Delta; avoids vendor lock-in, unlike Snowflake (proprietary format).
+5. Best-in-class Performance on Big Data---
+Built on Apache Spark; scales well for massive ETL, ML, and streaming jobs across petabytes of data.
+6. Multi-language Support--	
+Native support for Python, SQL, R, Scala—not just SQL like Snowflake or Redshift.
+7. Streaming + Batch in One	
+Structured Streaming and batch handled in same pipeline using Delta—great for real-time + historical data.
+8. Fine-grained Data Governance (Unity Catalog)
+Centralized governance across all assets, tables, notebooks, and users with Unity Catalog.
+9. Flexible Compute on Any Cloud
+Runs on AWS, Azure, GCP—no vendor lock-in to cloud provider or storage engine.
+10. Collaborative Workspace	Built-in notebooks, Git integration, and job scheduling enable seamless dev collaboration and CI/CD.
++++++++++++++++++++++++++
+1. Price Estimation (100 GB Load)✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅
+Platform	Cost Estimation (USD)	Breakdown
+Databricks	$2 – $5 (approx)	Based on DBU pricing (1–2 DBUs/hr on Standard Cluster), Delta write optimizations.
+Redshift	$4 – $8 (approx)	Based on RA3 nodes with Spectrum if using S3. Higher for dense compute clusters.
+Snowflake	$3 – $6 (approx)	Depends on virtual warehouse size (X-Small to Small); charged per second.
+
+⚠️ Assumptions:
+
+You use standard pricing tiers.
+
+You don't retain the cluster for hours.
+
+No complex joins/transforms.
+
+⚙️ Databricks Cost Tracking in Grafana (Automated)✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅
+✅ Step-by-Step Setup:✅✅✅✅✅✅✅✅✅✅✅✅✅✅
+Enable Audit & Usage Logs:
+
+Go to Workspace Admin → Accounts Console → Usage Details.
+
+Enable Billable Usage Logs (delivered to S3).
+
+Format: JSON/CSV per job/cluster with DBU cost.
+
+Use Databricks Billing Table:
+
+Read usage logs with Spark:
+
+python
+Copy
+Edit
+df = spark.read.option("header", True).csv("s3://<billing-log-path>")
+Store Aggregated Cost in Delta Table:
+df.groupBy("workspaceId", "clusterId", "day") \
+  .agg(sum("dbus").alias("total_dbu_cost")) \
+  .write.format("delta").mode("overwrite").saveAsTable("monitoring.usage_summary")
+Expose via REST API or JDBC:
+
+Expose usage_summary using Databricks SQL Endpoint or JDBC.
+
+Grafana Integration:
+
+Use Databricks SQL connector or PostgreSQL/MySQL sink to plug into Grafana.
+
+Create dashboards using:
+
+Cost per day
+
+Cost per job
+
+Cost per team/project
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+
+Here’s a clear architecture and engine-level overview of Databricks:
+
+✅ Databricks Architecture Overview✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅
+pgsql
+Copy
+Edit
+                 ┌──────────────────────────┐
+                 │        Users             │
+                 │ BI Tools, Notebooks,     │
+                 │ API, SQL, ML Libraries   │
+                 └─────────┬────────────────┘
+                           │
+                ┌──────────▼────────────┐
+                │  Databricks Workspace │
+                │ (Notebooks, Jobs, UI) │
+                └──────────┬────────────┘
+                           │
+                ┌──────────▼────────────┐
+                │     REST API Layer    │  ← Orchestration, Job Runs, Auth
+                └──────────┬────────────┘
+                           │
+               ┌───────────▼─────────────┐
+               │ Databricks Runtime (DBR)│
+               │ Apache Spark Engine +   │
+               │ MLflow, Delta Lake, Koalas│
+               └───────────┬─────────────┘
+                           │
+        ┌──────────────────▼────────────────────┐
+        │         Execution Engines             │
+        │ Apache Spark (batch, ML, SQL, stream) │
+        │ Photon Engine (vectorized SQL)        │
+        └──────────────────┬────────────────────┘
+                           │
+                ┌──────────▼────────────┐
+                │     Storage Layer     │
+                │ S3 / ADLS / GCS       │
+                │ Delta Lake Format     │
+                └───────────────────────┘
+🔍 Core Engine Components
+Component	Description+++++++++++++++++
+Databricks Runtime (DBR)	Optimized Spark runtime with better caching, file IO, and MLlib enhancements.
+Photon Engine	C++-based vectorized execution engine for ultra-fast SQL performance (100x faster than vanilla Spark SQL).
+Delta Engine	Extends DBR with caching, indexing, and Delta Lake features for ACID-compliant lakehouse tables.
+MLflow	Built-in tool for experiment tracking, model training, registry, and serving.
+Unity Catalog	Central governance for schema, metadata, permissions, and lineage across all data assets.
+
+🔁 Execution Flow (Simplified)
+User writes code in Notebook or API (SQL, Python, Scala).
+
+Code submitted to REST API, then routed to the Job Scheduler.
+
+Execution handled by Apache Spark (for batch/stream/ML) or Photon (for SQL).
+
+Data read from S3/ADLS in Delta Lake format.
+
+Metadata managed by Unity Catalog / Hive Metastore.
+
+++++++++++++++++++++++
+What are the key components of Databricks?------✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅
+
+Workspace (Notebooks, Dashboards)
+
+Jobs and Workflows
+
+Clusters
+
+Repos
+
+MLflow and Model Registry
+++++++++++++++++++
+ What is the Default Metastore in Databricks?
+➤ Default (Embedded Hive Metastore):✅
++++++++++++++++++++++++++++++++++Meta data-----
+. ✅What is AWS Glue Data Catalog?✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ 
+External Hive Metastore used by Databricks to register table metadata.
+
+Stores: table name, schema, location (not the actual data).
+
+Data stays in S3, metadata stays in Glue.
+
+🔧 2. Configure Databricks to Use AWS Glue
+Set these Spark configs in your cluster or notebook:
+
+python
+Copy
+Edit
+spark.conf.set("spark.sql.catalogImplementation", "hive")
+spark.conf.set("hive.metastore.client.factory.class", 
+               "com.amazonaws.glue.catalog.metastore.AWSGlueDataCatalogHiveClientFactory")
+Ensure:
+
+The cluster IAM role has AWSGlueConsoleFullAccess, AmazonS3FullAccess.
+
+Region and Glue permissions match.
+
+🪄 3. Write Delta Table to S3 and Register in Glue
+✅ Create Delta Table and Save to S3
+python
+Copy
+Edit
+df = spark.createDataFrame([
+    (1, "John"), (2, "Jane")
+], ["id", "name"])
+
+df.write.format("delta") \
+  .mode("overwrite") \
+  .save("s3a://your-bucket/delta/employees")
+✅ Register in Glue (external table)
+python
+Copy
+Edit
+spark.sql("""
+CREATE TABLE default.employees (
+  id INT,
+  name STRING
+)
+USING DELTA
+LOCATION 's3a://your-bucket/delta/employees'
+""")
+Now the table is visible in AWS Glue Console under the default database.
+
+📂 4. What Files Are Created in S3?
+S3 Directory Structure:✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ 
+sql
+Copy
+Edit
+s3://your-bucket/delta/employees/
+├── part-0000.parquet
+├── _delta_log/
+│   ├── 00000000000000000000.json        ← Initial snapshot
+│   ├── 00000000000000000001.json        ← Any DML updates
+│   └── ... check-point.parquet          ← Performance optimization
+Parquet files store actual data.
+
+_delta_log/ stores commit history, schema, and transaction logs.
+
+🛠️ 5. How Delta Does DML (Insert, Update, Delete)
+🔹 Insert
+sql
+Copy
+Edit
+INSERT INTO default.employees VALUES (3, 'Jake')
+➡ Adds a new Parquet file, appends new JSON commit log in _delta_log/.
+
+🔹 Update
+sql
+Copy
+Edit
+UPDATE default.employees SET name = 'Janet' WHERE id = 2
+➡ Writes new Parquet file with updated data, logs old file as removed in _delta_log/.
+
+🔹 Delete
+sql
+Copy
+Edit
+DELETE FROM default.employees WHERE id = 1
+➡ Marks file segments as removed in _delta_log/, writes new files excluding deleted row.
+
+🧠 6. How Query Works Internally✅ ✅ ✅ ✅ ✅ 
+User runs SQL query on default.employees
+
+Databricks reads metadata from Glue
+
+Gets the S3 path → reads _delta_log/ → reconstructs active files
+
+Loads only relevant Parquet files into Spark based on partition/Z-Ordering
+
+🔄 7. Time Travel Example✅ ✅ 
+sql
+Copy
+Edit
+-- View data as of version 0
+SELECT * FROM default.employees VERSION AS OF 0
+
+++++++++++++++++++++++++++++++++++++++++++++++++++++++DELTA_________
+What is a Databricks cluster?------------📂✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ 
+A set of computation resources and configurations used to run notebooks and jobs. Clusters can be all-purpose or job-specific.
+
+What are the different types of clusters in Databricks?📂
+
+All-purpose clusters (interactive analysis)
+
+Job clusters (automated tasks)
+
+What languages are supported in Databricks notebooks?📂
+Python, Scala, SQL, and R.
+
+How does Databricks handle version control?------
+Through built-in Git integration with services like GitHub, Bitbucket, and GitLab.
+
+What is a notebook in Databricks?-----📂
+A collaborative interface to write code, visualize data, and run ML models using multiple languages.
+
+What is DBFS?------------📂
+Databricks File System (DBFS) is a distributed file system mounted into a Databricks workspace.
+
+📂📂📂📂📂📂📂📂What is Delta Lake?------------📂📂📂📂📂📂📂📂📂
+An open-source storage layer that brings ACID transactions to Apache Spark and big data workloads.
+
+What are the benefits of using Delta Lake?📂
+
+ACID compliance
+
+Time travel
+
+Schema enforcement and evolution
+
+Better performance with Z-order and caching
+
+Section 2: Delta Lake and ETL----------📂✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅
+
+How does Delta Lake support time travel?---------📂
+By maintaining snapshots of data using transaction logs, allowing queries on historical versions using VERSION AS OF or TIMESTAMP AS OF.
+
+How do you merge data in Delta Lake?----------📂
+Using the MERGE INTO statement, similar to SQL upserts.
+
+What is schema evolution in Delta Lake?------------📂
+Allows new columns to be added automatically when data with different schema is written into a Delta table.
+
+What is Z-Ordering in Delta Lake?--------------📂
+A performance optimization technique to colocate related information in storage, improving query performance.
+
+What command is used to vacuum Delta tables?-------------📂
+VACUUM delta_table_name RETAIN 168 HOURS
+
+Section 3: Jobs and Workflows------------📂✅✅✅✅✅✅✅✅✅✅✅✅✅
+
+How are jobs scheduled in Databricks?-----------
+Using the Jobs UI or APIs to create scheduled or triggered jobs.
+
+Can we use Databricks with Airflow?---------📂
+Yes, via the Databricks Airflow provider or REST APIs.
+------------------------+++++
+Airflow DAG Example (Python)
+
+from airflow import DAG
+from airflow.providers.databricks.operators.databricks import DatabricksRunNowOperator
+from datetime import datetime
+
+}
+
+with DAG('databricks_airflow_example',
+         default_args=default_args,
+         schedule_interval='@daily',
+         catchup=False) as dag:
+
+    run_job = DatabricksRunNowOperator(
+        task_id='run_databricks_job',
+        databricks_conn_id='databricks_default',
+        job_id=1234,  # replace with your actual Databricks Job ID
+        notebook_params={"param1": "value1"}  # optional
+    )
+🧩 Airflow Connection Setup (databricks_default)📂
+In Airflow UI: Admin → Connections → Add
+
+Set:
+
+Conn Id: databricks_default
+
+Conn Type: Databricks
+
+Host: https://<your-workspace>.databricks.com
+
+Token: Your PAT
+
+✅ Result:
+This DAG will trigger your Databricks job every day.
+
+The job can run a notebook, JAR, Python script, etc.
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+What is a Databricks Workflow?📂✅ ✅ ✅ ✅ ✅ 
+A newer orchestration feature to chain notebooks, Python scripts, JARs, etc., with dependencies and triggers.
+
+How to trigger a Databricks job from an external tool?📂
+Using the REST API with job ID and token authentication.
+
+How do you monitor job performance in Databricks?📂
+Via job run UI, logs, and Spark UI for task-level metrics.
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+Section 4: Performance and Tuning📂------------------✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ 
+++++++++++++++++++++++++++++++++++++++++++
+What is the Catalyst Optimizer?
+An optimization framework in Apache Spark that rewrites queries for improved execution.
+
+How do you cache a DataFrame?
+Use .cache() or .persist() methods to keep intermediate data in memory.
+
+How do you reduce shuffle in Spark jobs?
+
+Use partitioning wisely
+
+Broadcast small datasets
+
+Filter early
+
+What is broadcast join in Spark?📂
+A technique to replicate a small dataset to all worker nodes to avoid shuffles.
+
+What is AQE (Adaptive Query Execution)?📂
+A Spark feature that dynamically adjusts query plans based on runtime statistics.
+
+Section 5: Machine Learning & MLflow
+
+What is MLflow?📂
+An open-source platform integrated into Databricks to manage ML lifecycle: tracking, packaging, and deployment.
+
+How do you log metrics in MLflow?📂
+Using mlflow.log_metric("accuracy", 0.92) inside your code.
+
+What is the purpose of MLflow Model Registry?📂
+To store, version, and promote models through stages like Staging and Production.
+
+Can MLflow be used outside Databricks?📂
+Yes, it’s open-source and can run in any environment.
+
+What are MLflow components?
+
+Tracking
+
+Projects
+
+Models
+
+Registry
+
+Section 6: Security and Access Control📂
+
+How does access control work in Databricks?
+Through workspace-level and table-level ACLs (Access Control Lists).
+
+What is Unity Catalog?📂
+A unified governance solution for all data assets on Databricks.
+
+How do you secure notebooks?📂
+With role-based access, Git versioning, and workspace folder permissions.
+
+Can Unity Catalog enforce row-level security?📂
+Yes, using dynamic views and attribute-based policies.
+
+What is a credential passthrough in Databricks?📂
+Allows users to access data in cloud storage with their own credentials.
+___________________________________________
+Section 7: Data Engineering & Pipelines✅✅✅✅✅✅✅✅✅✅✅✅✅
+___________________________________________
+How do you create a Delta table from a DataFrame?
+df.write.format("delta").saveAsTable("table_name")
+
+What is Autoloader in Databricks?📂
+A high-efficiency file ingestion tool for streaming data from cloud storage.
+
+What formats are supported in Autoloader?📂
+JSON, CSV, Avro, Parquet, Binary, Text
+
+How do you handle schema drift with Autoloader?
+Set cloudFiles.schemaEvolutionMode = addNewColumns
+
+What’s the difference between Structured Streaming and Autoloader?
+Autoloader is used for file discovery; Structured Streaming is for continuous processing.
+
+Section 8: Integrations & APIs-------------✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅
+
+How to connect Databricks with Snowflake?
+Use the Snowflake connector for Spark and appropriate JDBC settings.
+
+Can Databricks connect with Azure Data Factory?
+Yes, using Azure Databricks linked service or REST APIs.
+
+How do you send alerts from a job?
+Configure job failure notifications via email or webhook.
+
+What is the Databricks REST API used for?
+Managing clusters, jobs, users, libraries, and secrets programmatically.
+
+What is a webhook in Databricks workflows?
+An HTTP callback trigger for external integration.
+
+Section 9: Advanced Topics✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅
+
+What is a Lakehouse?
+A unified architecture that combines the benefits of data lakes and data warehouses.
+
+How do you handle slowly changing dimensions (SCD) in Databricks?
+Use Delta Lake’s MERGE INTO logic with WHEN MATCHED and WHEN NOT MATCHED clauses.
+
+What is a medallion architecture?
+A layered approach (Bronze → Silver → Gold) to manage raw, cleaned, and curated data.
+
+Can you run notebooks in parallel?
+Yes, using workflows with multiple tasks or dbutils.notebook.run() asynchronously.
+
+What’s new in Databricks Unity Catalog?
+Fine-grained access control, centralized metadata, lineage, and multi-cloud governance.
+---------
+++++++++++++++++++++++++++++++Optimization+++++++++++
+-----------
+Delta Lake Optimizations✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅
+_________________
+Partition by column
+df.write.partitionBy("region").format("delta").save("/mnt/delta")
+Improves query performance by scanning only relevant partitions.
+
+Z-Ordering
+OPTIMIZE my_table ZORDER BY (customer_id)
+Co-locates related data for faster filtering on sorted columns.
+
+Data Skipping
+Enabled by default in Delta for partition & stats filtering.
+No code needed, just ensure stats are available.
+
+Schema enforcement
+df.write.option("mergeSchema", "true").format("delta").save(...)
+Avoids corrupt data writes by enforcing schema consistency.
+
+Enable Auto Optimize
+ALTER TABLE my_table SET TBLPROPERTIES ('delta.autoOptimize.optimizeWrite' = 'true')
+Automatically optimizes small file sizes during writes.
+__________________________
+⚡ Spark/DataFrame Optimizations✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅
+
+_____________________
+Cache DataFrame
+df.cache()
+Speeds up repeated access of unchanged data in memory.
+
+Persist with storage level
+df.persist(StorageLevel.MEMORY_AND_DISK)
+Controls memory vs disk usage for large datasets.
+
+Broadcast Join
+broadcast_df = broadcast(df_small)
+Avoids shuffle by sending small table to all nodes.
+
+Repartition after joins
+df.repartition("key")
+Improves parallelism and reduces skew after joins.
+
+Use filter early
+df.filter("age > 30").select("name")
+Pushes filter down to data source, reducing read volume.
+_______________________
+📦 File & Storage Optimization✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅
+______________________________
+Write as Parquet or Delta
+df.write.format("delta").save("/mnt/target")
+Columnar formats are faster for analytical queries.
+
+Avoid small files
+df.coalesce(1).write.format("delta").save("/mnt")
+Reduces metadata overhead and job startup time.
+
+Use Autoloader over file reads
+readStream.format("cloudFiles").load("/mnt/ingest")
+Efficiently ingests large volumes with schema evolution.
+
+Compact small files
+OPTIMIZE my_table
+Combines many small files into fewer larger files.
+
+Use checkpointing
+writeStream.option("checkpointLocation", "/mnt/check")
+Prevents data reprocessing in Structured Streaming.
+_________________________
+🧠 Query Optimization✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅
+______________________________
+Push predicates to source
+df.filter("year = 2024")
+Let source systems (like Delta, JDBC) filter early.
+
+Avoid UDFs when possible
+Prefer native Spark SQL functions for speed and Catalyst optimization.
+
+Avoid collect() in driver
+df.limit(10).show()
+Use show() instead of collecting large results to driver.
+
+Materialize temp tables
+df.write.saveAsTable("tmp_materialized")
+Reusing complex queries benefits from intermediate saves.
+
+Use EXPLAIN to tune
+df.explain(True)
+Visualize Spark execution plans to identify bottlenecks.
+_________________
+🧩 Cluster Optimization✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅
+_________________________
+Use autoscaling clusters
+Set min and max workers to auto-adjust for workload.
+
+Enable dynamic allocation
+spark.dynamicAllocation.enabled=true
+Automatically scales executors based on load.
+
+Choose right instance type
+Use memory-optimized for joins, compute-optimized for ML.
+
+Use spot instances
+Enable spot workers to save costs for non-critical jobs.
+
+Use pools for reuse
+Cluster pools speed up startup by reusing VMs.
+__________________________
+🔐 Caching and Storage Tuning✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅
+___________________________
+Use Delta Cache (Databricks IO Cache)
+Enabled by default; caches frequently accessed Parquet files.
+
+Avoid nested caching
+Cache only at the final stage, not on every transformation.
+
+Avoid caching huge data
+Cache only filtered or essential data subsets.
+
+Remove unused cache
+spark.catalog.clearCache()
+Frees up memory from unused cached tables.
+
+Use .count() wisely
+Avoid calling .count() repeatedly, cache before if needed.
+_________________________
+⏱️ Job & Workflow Efficiency✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅
+_____________________________
+Use job clusters instead of all-purpose
+Job clusters are optimized for task startup and cost.
+
+Parallelize tasks with Workflows
+Run notebooks in parallel in Databricks Jobs for speed.
+
+Chain dependencies in Workflows
+Define dependent tasks to avoid race conditions.
+
+Retry failed tasks
+Set max_retries in workflows to handle transient failures.
+
+Limit number of notebooks per job
+Avoid overloading job with too many steps — split logically.
+_____________________________
+📈 Streaming Optimization✅✅✅✅✅✅✅✅✅✅✅✅✅✅
+___________________
+Trigger once for batch-style stream
+trigger(once=True)
+Efficiently processes available data and stops.
+
+Use watermarking
+withWatermark("event_time", "10 minutes")
+Handles late data and avoids large state storage.
+
+Minimize stateful operations
+Use joins and aggregations only when necessary.
+
+Optimize shuffle partitions
+spark.sql.shuffle.partitions = 200
+Tune based on data volume and cluster size.
+
+Use append mode when possible
+Faster and simpler than complete or update modes.
+______________________________
+🧪 Delta Table Management✅✅✅✅✅✅✅✅✅✅✅
+_______________________
+Clean old versions
+VACUUM delta_table RETAIN 168 HOURS
+Removes obsolete files and frees storage.
+
+Enable change data feed
+ALTER TABLE t SET TBLPROPERTIES ('delta.enableChangeDataFeed' = true)
+Track row-level changes for downstream syncs.
+
+Use identity columns for surrogate keys
+GENERATED ALWAYS AS IDENTITY
+Avoids manual ID generation logic.
+
+Merge only changed rows
+MERGE ... WHEN MATCHED AND src.hash <> tgt.hash
+Improves performance by skipping unchanged rows.
+
+Limit history retention
+SET delta.logRetentionDuration = '7 days'
+Reduces metadata size in large tables.
+
+🧰 Advanced Techniques
+Use Bloom Filters for join filters
+Faster filtering using approximate membership logic.
+
+Materialized views---------
+Precompute and store complex joins for reuse.
+
+Use dbutils.notebook.run() with timeout
+dbutils.notebook.run("child", 60)
+Avoids stuck processes from long child notebooks.
+
+Use MLflow autologging
+mlflow.autolog()
+Captures metrics and parameters automatically in ML jobs.
+
+Enable AQE (Adaptive Query Execution)
+spark.sql.adaptive.enabled=true
+Dynamically adjusts join strategy and partitions at runtime.
+
+
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+Delta Table vs Delta Live Table (DLT)✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅
+
+
+++++++++++++++++++++++++++++++++++++++++++++++
+Feature	Delta Table	Delta Live Table (DLT)
+Definition	A storage format (Parquet + transaction log)	A managed streaming/batch pipeline framework using Delta
+How It's Created	Using CREATE TABLE or df.write.format("delta")	Using @dlt.table or CREATE LIVE TABLE
+Execution	Manual or scheduled with notebooks	Runs in a managed, auto-orchestrated pipeline
+Orchestration	You manage job sequencing and dependencies	Built-in dependency graph and ordering
+Schema Evolution	Must be handled manually	Built-in with @dlt.expect() and @dlt.apply_changes()
+Monitoring	Spark UI or job output	DLT UI with built-in lineage, quality, and run history
+Best For	Simple batch loads, external control (e.g. Airflow)	Streaming/batch pipelines with auto-manage, retry, logging
+
+✅ Example Code
+Delta Table
+python
+Copy
+Edit
+df.write.format("delta").mode("overwrite").saveAsTable("gold.orders_summary")
+Delta Live Table
+python
+Copy
+Edit
+import dlt
+
+@dlt.table
+def orders_summary():
+    return spark.read.table("silver.orders").groupBy("customer_id").agg(...)
+🎯 When to Use What?
+Use Case	Recommended
+Simple one-time or batch writes	Delta Table
+You want full pipeline with retry, quality checks	DLT
+You want UI + automatic orchestration	DLT
+You're integrating with Airflow/Control-M	Delta Table
+
+________________________________________________________________
+
+SCD type 2 in Pyspark databrics::::::::::::::✅ ✅ ✅ ✅ ✅ 
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+Requirements:
+Source (STG) Table: stg.customer
+
+Target (Core/Dim) Table: core.customer
+
+Business Columns: name, address, phone
+
+Tracking Columns:
+
+start_date (when record becomes active)
+
+end_date (when record expires)
+
+is_current (1 = current, 0 = expired)
+
+del_flag (1 = deleted, 0 = active)
+
+
+✅ ✅Code: SCD Type 2 (Insert, Update, Delete Handling)✅✅✅✅✅✅✅✅✅
+python
+Copy
+Edit
+from pyspark.sql.functions import current_date, lit, col
+from delta.tables import DeltaTable
+
+# Load source and target
+df_stg = spark.table("stg.customer")
+df_target = DeltaTable.forName(spark, "core.customer")
+
+# Step 1: Mark expired records in target where business key matches but data changed
+update_condition = " AND ".join([
+    f"target.{col} <> stg.{col}" for col in ["name", "address", "phone"]
+])
+merge_condition = f"target.customer_id = stg.customer_id AND target.is_current = 1"
+
+df_target.alias("target").merge(
+    df_stg.alias("stg"),
+    merge_condition
+).whenMatchedUpdate(
+    condition=update_condition,
+    set={
+        "is_current": lit(0),
+        "end_date": current_date()
+    }
+).execute()
+
+# Step 2: Insert new or changed records (new version or new keys)
+df_target.alias("target").merge(
+    df_stg.alias("stg"),
+    "target.customer_id = stg.customer_id AND target.is_current = 1"
+).whenNotMatchedInsert(
+    values={
+        "customer_id": col("stg.customer_id"),
+        "name": col("stg.name"),
+        "address": col("stg.address"),
+        "phone": col("stg.phone"),
+        "start_date": current_date(),
+        "end_date": lit(None).cast("date"),
+        "is_current": lit(1),
+        "del_flag": col("stg.del_flag")
+    }
+).execute()
+
+# Step 3: Mark logically deleted records (del_flag = 1 in source)
+df_target.alias("target").merge(
+    df_stg.filter("del_flag = 1").alias("stg"),
+    "target.customer_id = stg.customer_id AND target.is_current = 1"
+).whenMatchedUpdate(
+    set={
+        "is_current": lit(0),
+        "end_date": current_date(),
+        "del_flag": lit(1)
+    }
+).execute()
+✅ Initial Table Schema (core.customer)
+sql
+Copy
+Edit
+CREATE TABLE core.customer (
+  customer_id STRING,
+  name STRING,
+  address STRING,
+  phone STRING,
+  start_date DATE,
+  end_date DATE,
+  is_current INT,
+  del_flag INT
+) USING DELTA;
+🎯 Result
+Case	Action Taken
+New record	Insert with is_current = 1
+Changed data	Expire old + insert new version
+Deleted record	Expire current version + set del_flag = 1
+

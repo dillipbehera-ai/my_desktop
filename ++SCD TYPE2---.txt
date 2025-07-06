@@ -1,0 +1,396 @@
+++SCD TYPE2---
+++++++++++
+✅✅SCD Type 2: ✅✅
+Maintains historical data by creating a new record for each change, with columns like start_date, end_date, and is_active to track validity periods.
+Key Columns:✅
+Natural key (e.g., customer_id): Identifies the entity.
+Surrogate key (e.g., row_id): Uniquely identifies each version.
+start_date: When the record becomes active.
+end_date: When the record expires (null for active records).
+is_active: Boolean flag indicating the current record.
+✅✅SCD Type 2 in Hive Without ACID✅✅
+Approach
+Without ACID (pre-Hive 0.14 or non-ACID tables), updates/deletes are not supported, so SCD Type 2 is implemented using INSERT operations with temporary tables to stage and merge data.
+Steps:✅✅✅✅
+Create a target table with SCD columns.
+Stage new/incoming data in a temporary table.
+Identify unchanged, updated, and new records.
+Expire old records and insert new ones using a UNION ALL.
+✅✅✅Storage and Architecture✅✅✅
+Data is stored in a Hive table (e.g., ORC/Parquet format) with partitions (optional, e.g., by load_date).
+No transactional support, so operations rely on overwriting partitions or appending new records.
+Uses Hive’s query engine (Tez/Spark) to process merges, with data stored in HDFS/S3.
+Example✅✅✅✅
+Assume a customer table with customer_id, name, and SCD columns. New data arrives daily, and we track changes to name.
+
+Hive Table Setup:
+CREATE TABLE customer_scd2 (
+    row_id INT,
+    customer_id STRING,
+    name STRING,
+    start_date STRING,
+    end_date STRING,
+    is_active BOOLEAN
+)
+STORED AS ORC
+TBLPROPERTIES ('transactional'='false');
+Temporary Table for New Data:
+
+sql
+
+Copy
+CREATE TABLE customer_staging (
+    customer_id STRING,
+    name STRING,
+    load_date STRING
+)
+STORED AS ORC;✅✅✅✅✅
+Airflow DAG with HiveOperator:
+
+python
+
+Copy
+from airflow import DAG
+from airflow.operators.hive_operator import HiveOperator
+from datetime import datetime, timedelta
+
+default_args = {
+    'owner': 'airflow',
+    'retries': 1,
+    'retry_delay': timedelta(minutes=5),
+}
+
+with DAG(
+    dag_id='scd2_hive_no_acid',
+    default_args=default_args,
+    schedule_interval='@daily',
+    start_date=datetime(2025, 5, 23),
+    catchup=False
+) as dag:
+
+    # Load new data into staging table✅✅✅✅✅
+    load_staging = HiveOperator(
+        task_id='load_staging',
+        hql="""
+        INSERT INTO customer_staging
+        SELECT customer_id, name, '{{ ds }}' AS load_date
+        FROM source_table
+        """,
+        hive_conn_id='hive_default',
+        dag=dag
+    )
+
+    # Merge SCD Type 2 logic✅✅✅✅✅✅✅
+    merge_scd2 = HiveOperator(
+        task_id='merge_scd2',
+        hql="""
+        -- Create temp table for merged data✅✅
+        CREATE TABLE customer_scd2_temp AS
+        -- Expire old records✅✅✅✅
+        SELECT 
+            row_id,
+            customer_id,
+            name,
+            start_date,
+            CASE 
+                WHEN t1.is_active AND t2.customer_id IS NOT NULL 
+                THEN '{{ ds }}' 
+                ELSE end_date 
+            END AS end_date,
+            CASE 
+                WHEN t1.is_active AND t2.customer_id IS NOT NULL 
+                THEN FALSE 
+                ELSE t1.is_active 
+            END AS is_active
+        FROM customer_scd2 t1
+        LEFT JOIN customer_staging t2 
+        ON t1.customer_id = t2.customer_id 
+        AND t2.load_date = '{{ ds }}'
+        WHERE t1.end_date IS NULL
+        UNION ALL
+        -- Insert new/updated records✅✅✅✅✅
+        SELECT 
+            ROW_NUMBER() OVER () + (SELECT COALESCE(MAX(row_id), 0) FROM customer_scd2) AS row_id,
+            t2.customer_id,
+            t2.name,
+            '{{ ds }}' AS start_date,
+            NULL AS end_date,
+            TRUE AS is_active
+        FROM customer_staging t2
+        WHERE t2.load_date = '{{ ds }}';
+        
+        -- Replace old table
+        DROP TABLE customer_scd2;
+        ALTER TABLE customer_scd2_temp RENAME TO customer_scd2;
+        """,
+        hive_conn_id='hive_default',
+        dag=dag
+    )
+
+    load_staging >> merge_scd2
+✅✅✅✅✅✅✅✅
+Explanation:
+✅✅✅✅✅✅✅✅✅✅✅✅
+Staging: New data is loaded into customer_staging with the execution date ({{ ds }}).
+Merge:
+Expire old records: Set end_date to {{ ds }} and is_active to FALSE for records with updates in the staging table.
+Insert new records: Add new/updated records with a new row_id, start_date={{ ds }}, end_date=NULL, and is_active=TRUE.
+Use a temporary table (customer_scd2_temp) to stage results, then replace the original table.
+Storage: Data is stored in ORC format in HDFS/S3, with no transactional overhead.
+Pros:
+✅✅✅✅✅✅
+Simple to implement without ACID.
+Works with any Hive storage format (ORC, Parquet, etc.).
+Cons:
+No transactional consistency; table replacement can cause issues if queries run concurrently.
+Requires temporary tables, increasing storage overhead.
+✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅
+SCD Type 2 in Hive with ACID
+✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅
+Approach
+With ACID (Hive 0.14+, enabled via transactional=true), Hive supports INSERT, UPDATE, and DELETE operations, simplifying SCD Type 2 implementation.
+Steps:
+Create an ACID-enabled table with SCD columns.
+Use MERGE (Hive 2.2+) or UPDATE/INSERT to update existing records and insert new ones.
+Manage transactions via Hive’s transaction manager.
+Storage and Architecture
+ACID tables are stored in ORC format (mandatory) with delta files for updates/deletes.
+Hive’s transaction manager (backed by the metastore) ensures consistency.
+Data is stored in HDFS/S3 with base files (initial data) and delta files (changes), merged during compaction.
+Compaction (major/minor) consolidates delta files to optimize performance.
+Example
+Hive Table Setup:
+
+sql
+
+Copy
+CREATE TABLE customer_scd2_acid (
+    row_id INT,
+    customer_id STRING,
+    name STRING,
+    start_date STRING,
+    end_date STRING,
+    is_active BOOLEAN
+)
+STORED AS ORC
+TBLPROPERTIES ('transactional'='true');
+Airflow DAG with HiveOperator:
+
+python
+
+Copy
+from airflow import DAG
+from airflow.operators.hive_operator import HiveOperator
+from datetime import datetime, timedelta
+
+default_args = {
+    'owner': 'airflow',
+    'retries': 1,
+    'retry_delay': timedelta(minutes=5),
+}
+
+with DAG(
+    dag_id='scd2_hive_acid',
+    default_args=default_args,
+    schedule_interval='@daily',
+    start_date=datetime(2025, 5, 23),
+    catchup=False
+) as dag:
+
+    # Load new data into staging (non-ACID table)
+    load_staging = HiveOperator(
+        task_id='load_staging',
+        hql="""
+        INSERT INTO customer_staging
+        SELECT customer_id, name, '{{ ds }}' AS load_date
+        FROM source_table
+        """,
+        hive_conn_id='hive_default',
+        dag=dag
+    )
+
+    # Merge SCD Type 2 using ACID
+    merge_scd2 = HiveOperator(
+        task_id='merge_scd2',
+        hql="""
+        MERGE INTO customer_scd2_acid AS t
+        USING customer_staging AS s
+        ON t.customer_id = s.customer_id AND t.is_active = TRUE
+        WHEN MATCHED AND t.name != s.name THEN
+            UPDATE SET end_date = '{{ ds }}', is_active = FALSE
+        WHEN NOT MATCHED THEN
+            INSERT (row_id, customer_id, name, start_date, end_date, is_active)
+            VALUES (
+                (SELECT COALESCE(MAX(row_id), 0) + ROW_NUMBER() OVER () FROM customer_scd2_acid),
+                s.customer_id,
+                s.name,
+                '{{ ds }}',
+                NULL,
+                TRUE
+            );
+        """,
+        hive_conn_id='hive_default',
+        dag=dag
+    )
+
+    load_staging >> merge_scd2
+Explanation:
+
+Staging: New data is loaded into a non-ACID customer_staging table.
+Merge:
+Use MERGE to match records on customer_id where is_active=TRUE.
+Update matched records: Set end_date={{ ds }} and is_active=FALSE if name changes.
+Insert new records: Add new/updated records with a new row_id, start_date={{ ds }}, end_date=NULL, and is_active=TRUE.
+Storage: Data is stored in ORC format with delta files for updates. Hive’s transaction manager ensures atomicity.
+Pros:
+
+Transactional consistency for concurrent operations.
+Simpler merge logic with MERGE statement.
+No need for temporary tables.
+Cons:
+
+Requires ORC format and Hive transaction manager setup.
+Compaction overhead for large datasets.
+Configuration Notes:
+
+Enable ACID in Hive:
+sql
+
+Copy
+SET hive.support.concurrency=true;
+SET hive.enforce.bucketing=true;
+SET hive.exec.dynamic.partition.mode=nonstrict;
+SET hive.txn.manager=org.apache.hadoop.hive.ql.lockmgr.DbTxnManager;
+Schedule periodic compaction in Airflow to merge delta files:
+python
+
+Copy
+compact_table = HiveOperator(
+    task_id='compact_table',
+    hql="ALTER TABLE customer_scd2_acid COMPACT 'major';",
+    dag=dag
+)
+SCD Type 2 in Spark
+Approach
+Spark implements SCD Type 2 using DataFrame operations, leveraging MERGE (with Delta Lake for transactional support) or join operations for non-Delta tables.
+Steps:
+Read the target table and new data.
+Identify unchanged, updated, and new records using joins.
+Write results back to the table (overwrite or append).
+Storage and Architecture
+Without Delta Lake: Data is stored in Parquet/ORC files in HDFS/S3. Overwrites replace entire partitions or tables.
+With Delta Lake: Provides ACID transactions, storing data in Parquet with a transaction log for consistency.
+Spark’s Catalyst Optimizer optimizes joins and writes, leveraging metadata for pruning.
+Example (Without Delta Lake)
+Assume a Spark job processes SCD Type 2 for the same customer data.
+
+Spark Job (scd2_spark.py):
+
+python
+
+Copy
+from pyspark.sql import SparkSession
+from pyspark.sql.functions import col, lit, row_number
+from pyspark.sql.window import Window
+
+spark = SparkSession.builder.appName("SCD2").enableHiveSupport().getOrCreate()
+
+# Read target and staging data
+target_df = spark.read.table("customer_scd2")
+staging_df = spark.read.table("customer_staging").filter(col("load_date") == "{{ ds }}")
+
+# Expire old records
+expired_df = target_df.join(staging_df, ["customer_id"], "left_outer") \
+    .where(target_df.is_active == True) \
+    .select(
+        target_df.row_id,
+        target_df.customer_id,
+        target_df.name,
+        target_df.start_date,
+        lit("{{ ds }}").alias("end_date"),
+        lit(False).alias("is_active")
+    ).filter(col("staging_df.customer_id").isNotNull())
+
+# Unchanged records
+unchanged_df = target_df.filter(~col("customer_id").isin([row.customer_id for row in staging_df.select("customer_id").collect()]))
+
+# New/updated records
+new_df = staging_df.select(
+    (row_number().over(Window.orderBy(lit(1))) + target_df.select("row_id").rdd.max()[0]).alias("row_id"),
+    col("customer_id"),
+    col("name"),
+    lit("{{ ds }}").alias("start_date"),
+    lit(None).cast("string").alias("end_date"),
+    lit(True).alias("is_active")
+)
+
+# Union all records
+final_df = unchanged_df.union(expired_df).union(new_df)
+
+# Write back to Hive table
+final_df.write.mode("overwrite").format("orc").saveAsTable("customer_scd2")
+
+spark.stop()
+Airflow DAG:
+
+python
+
+Copy
+from airflow import DAG
+from airflow.operators.hive_operator import HiveOperator
+from airflow.providers.apache.spark.operators.spark_submit import SparkSubmitOperator
+from datetime import datetime, timedelta
+
+default_args = {
+    'owner': 'airflow',
+    'retries': 1,
+    'retry_delay': timedelta(minutes=5),
+}
+
+with DAG(
+    dag_id='scd2_spark',
+    default_args=default_args,
+    schedule_interval='@daily',
+    start_date=datetime(2025, 5, 23),
+    catchup=False
+) as dag:
+
+    load_staging = HiveOperator(
+        task_id='load_staging',
+        hql="INSERT INTO customer_staging SELECT customer_id, name, '{{ ds }}' FROM source_table",
+        hive_conn_id='hive_default',
+        dag=dag
+    )
+
+    spark_scd2 = SparkSubmitOperator(
+        task_id='spark_scd2',
+        application='/path/to/scd2_spark.py',
+        application_args=['--date', '{{ ds }}'],
+        spark_conn_id='spark_default',
+        dag=dag
+    )
+
+    load_staging >> spark_scd2
+Explanation:
+
+Staging: Load new data into customer_staging using HiveOperator.
+Spark Job:
+Read target (customer_scd2) and staging tables.
+Expire old records: Join to identify updated records, set end_date={{ ds }} and is_active=False.
+Keep unchanged records: Filter out records not in staging.
+Add new records: Assign new row_id, set start_date={{ ds }}, end_date=None, is_active=True.
+Write back: Overwrite the Hive table with the merged DataFrame.
+Storage: Data is stored in ORC format in HDFS/S3, with no transactional guarantees.
+Pros:
+
+Fast processing with Spark’s in-memory engine.
+Flexible for large datasets.
+Cons:
+
+No ACID support; overwrites can cause inconsistency if queries run concurrently.
+Complex join logic compared to Hive’s MERGE.
+
+
+
+
+

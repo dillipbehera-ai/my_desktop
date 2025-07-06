@@ -1,0 +1,759 @@
+How the Configuration Works---✅✅✅hive with spark---✅✅✅
+1. hive.execution.engine=spark✅✅✅
+Purpose: Specifies that Hive uses Apache Spark as its execution engine instead of the default MapReduce or Tez.
+Functionality:✅✅✅
+Hive translates HiveQL queries into a Directed Acyclic Graph (DAG) of Spark tasks.
+Spark’s in-memory processing replaces MapReduce’s disk-based approach, improving performance for large-scale queries like SCD Type 2 merges.
+Hive’s metastore remains the source of metadata, while Spark handles query execution.
+2. spark.master=yarn✅✅✅
+Purpose: Configures Spark to run on Hadoop YARN as the resource manager.
+Functionality:✅✅✅
+YARN manages cluster resources (CPU, memory) and schedules Spark tasks across nodes.
+Spark applications (e.g., Hive queries) are submitted to YARN, which allocates containers for Spark executors.
+Enables scalability and resource sharing in a multi-tenant Hadoop cluster.
+✅✅✅How It Works Together:✅✅✅
+When a HiveQL query (e.g., SCD Type 2 merge) is executed, Hive’s query compiler generates a DAG.
+The DAG is converted into Spark tasks, executed by Spark’s driver and executors.
+YARN allocates resources (containers) for Spark executors, ensuring efficient resource utilization.
+Data is read from/written to HDFS, with metadata managed by Hive’s metastore.
+Architecture of Hive with Spark
+Components and Flow
+Hive Client:✅ 
+Interfaces: CLI, Beeline, JDBC/ODBC.
+Users submit HiveQL queries (e.g., INSERT OVERWRITE for SCD Type 2).
+Hive Driver:✅ 
+Receives HiveQL queries and coordinates execution.
+Parses queries and interacts with the metastore.
+Hive Metastore:✅ 
+Stores metadata (table schemas, partitions, locations) in an RDBMS (e.g., MySQL).
+Spark accesses metadata via HiveContext or SparkSession to locate data in HDFS.
+Hive Compiler:✅ 
+Parser: Converts HiveQL into an Abstract Syntax Tree (AST).
+Semantic Analyzer: Validates syntax and metadata.
+Logical Plan: Creates an optimized logical query plan.
+Physical Plan: Generates a DAG of Spark tasks, leveraging Spark’s Catalyst optimizer.
+Spark Execution Engine:
+Spark Driver:✅ 
+Manages the Spark application, converting the DAG into tasks.
+Submits tasks to YARN’s ResourceManager.
+Spark Executors:
+Run tasks in YARN containers, performing operations like joins or aggregations.
+Cache data in memory for faster processing.
+Catalyst Optimizer:
+Optimizes query plans with predicate pushdown, partition pruning, and join reordering.
+Spark SQL:
+Executes HiveQL as Spark SQL queries, leveraging Spark’s DataFrame API.
+YARN Resource Manager:
+ResourceManager: Allocates containers for Spark executors.
+NodeManager: Manages resources on individual nodes.
+ApplicationMaster: Coordinates the Spark application within YARN.
+HDFS:
+Stores table data (e.g., /user/hive/warehouse/my_db.db/dim_customer/partition_date=2025-05-22).
+ORC/Parquet files are read/written by Spark executors.
+Partitions create subdirectories for efficient data access.
+Spark Context/HiveContext:
+Spark’s HiveContext (or SparkSession with Hive support) integrates with the Hive metastore to access table metadata.
+Example Spark code for Hive integration:
+python
+
+Copy
+from pyspark.sql import SparkSession
+spark = SparkSession.builder \
+  .appName("HiveSCD") \
+  .config("spark.sql.catalogImplementation", "hive") \
+  .getOrCreate()
+spark.sql("SELECT * FROM my_db.dim_customer")
+✅✅✅✅✅✅Architecture Diagram (Conceptual)✅✅✅✅✅✅✅✅✅
+text
+
+Copy
+[User] --> [Hive Client (CLI/Beeline/JDBC)]
+           |
+           v
+[Hive Driver] --> [Hive Metastore (MySQL)]
+           |
+           v
+[Hive Compiler] --> [Logical Plan] --> [Physical Plan (Spark DAG)]
+           |
+           v
+[Spark Driver] --> [YARN ResourceManager]
+           |          |
+           v          v
+[Spark Executors] <--> [YARN NodeManagers]
+           |
+           v
+[HDFS (ORC/Parquet files)]
++✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅
+SCD Type 2 Workflow in This Architecture
+✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅
+Query Submission: A HiveQL script for SCD Type 2 (e.g., merge logic) is submitted via Beeline.
+Compilation: Hive parses the query, validates metadata, and generates a Spark DAG.
+Execution: Spark executors read source and dimension tables from HDFS, perform joins (e.g., for expiring old records), and write results back to HDFS using INSERT OVERWRITE.
+Resource Management: YARN allocates containers for Spark tasks, ensuring scalability.
+File-Level Operations: Spark writes ORC files to HDFS partitions (e.g., /dim_customer/partition_date=2025-05-22).
+Detailed SCD Type 2 Implementation Without ACID
+✅✅✅✅✅✅Step 1: Set Up Hive and Spark✅✅✅✅✅✅
+Configure Hive:
+Ensure hive-site.xml includes:
+xml
+
+Copy
+<property>
+  <name>hive.execution.engine</name>
+  <value>spark</value>
+</property>
+<property>
+  <name>spark.master</name>
+  <value>yarn</value>
+</property>
+<property>
+  <name>hive.metastore.uris</name>
+  <value>thrift://<metastore-host>:9083</value>
+</property>
+Set dynamic partitioning:
+sql
+
+Copy
+SET hive.exec.dynamic.partition=true;
+SET hive.exec.dynamic.partition.mode=nonstrict;
+Create Tables:
+Source Table:
+sql
+✅✅✅✅✅✅✅✅✅
+Copy
+CREATE EXTERNAL TABLE my_db.source_customer (
+  customer_id INT,
+  name STRING,
+  address STRING,
+  update_date DATE
+)
+STORED AS PARQUET
+LOCATION '/user/hive/warehouse/my_db.db/source_customer';
+Dimension Table (SCD Type 2):
+sql
+✅✅✅✅✅✅✅✅✅
+Copy
+CREATE TABLE my_db.dim_customer (
+  customer_id INT,
+  name STRING,
+  address STRING,
+  start_date DATE,
+  end_date DATE,
+  is_active BOOLEAN
+)
+PARTITIONED BY (partition_date STRING)
+STORED AS ORC
+LOCATION '/user/hive/warehouse/my_db.db/dim_customer';
+✅✅✅✅✅✅Step 2: Implement SCD Type 2 Merge✅✅✅✅✅✅
+Create Temporary Table:✅✅✅
+sql
+✅✅✅✅✅✅✅✅✅
+Copy
+CREATE TABLE my_db.temp_customer (
+  customer_id INT,
+  name STRING,
+  address STRING,
+  start_date DATE,
+  end_date DATE,
+  is_active BOOLEAN,
+  partition_date STRING
+)
+STORED AS ORC;
+Stage New Data:✅✅✅✅✅✅
+sql
+
+Copy
+INSERT INTO my_db.temp_customer
+SELECT
+  customer_id,
+  name,
+  address,
+  CURRENT_DATE AS start_date,
+  NULL AS end_date,
+  true AS is_active,
+  '2025-05-22' AS partition_date
+FROM my_db.source_customer;
+✅✅✅✅✅✅Merge Logic:✅✅✅✅✅✅
+Use INSERT OVERWRITE to rebuild the dimension table:
+sql
+
+Copy
+INSERT OVERWRITE TABLE my_db.dim_customer PARTITION (partition_date)
+WITH merged_data AS (
+  -- Expire old records
+  SELECT
+    d.customer_id,
+    d.name,
+    d.address,
+    d.start_date,
+    CASE
+      WHEN t.customer_id IS NOT NULL THEN CURRENT_DATE
+      ELSE d.end_date
+    END AS end_date,
+    CASE
+      WHEN t.customer_id IS NOT NULL THEN false
+      ELSE d.is_active
+    END AS is_active,
+    d.partition_date
+  FROM my_db.dim_customer d
+  LEFT JOIN my_db.temp_customer t
+    ON d.customer_id = t.customer_id
+    AND d.is_active = true
+  WHERE d.is_active = true
+    OR t.customer_id IS NULL
+
+  UNION ALL
+
+  -- Add new/updated records
+  SELECT
+    t.customer_id,
+    t.name,
+    t.address,
+    t.start_date,
+    t.end_date,
+    t.is_active,
+    t.partition_date
+  FROM my_db.temp_customer t
+)
+SELECT * FROM merged_data;
+✅✅✅Clean Up:✅✅✅✅✅✅
+sql
+
+Copy
+DROP TABLE my_db.temp_customer;
+✅✅✅✅✅✅Step 3: Handle Deletions Without ACID✅✅✅✅✅✅
+✅✅✅Soft Deletes: Handled in merge logic by setting is_active=false.
+✅✅✅Hard Deletes: Filter records during merge:
+sql
+
+Copy
+INSERT OVERWRITE TABLE my_db.dim_customer PARTITION (partition_date)
+SELECT * FROM my_db.dim_customer
+WHERE customer_id NOT IN (SELECT customer_id FROM my_db.source_deletes);
+File-Level Deletion:
+bash
+
+Copy
+hdfs dfs -rm -r /user/hive/warehouse/my_db.db/dim_customer/partition_date=2025-05-22
+Refresh metadata:
+sql
+
+Copy
+MSCK REPAIR TABLE my_db.dim_customer;
+Step 4: Optimize for Spark
+Partitioning: Use partition_date to reduce scan scope.
+Bucketing: Bucket dim_customer on customer_id for join efficiency:
+sql
+
+Copy
+SET hive.enforce.bucketing=true;
+ALTER TABLE dim_customer SET TBLPROPERTIES ('numBuckets'='10', 'bucketCols'='customer_id');
+Caching: Cache temporary tables in Spark:
+sql
+
+Copy
+CACHE TABLE temp_customer;
+Spark Tuning:
+bash
+
+Copy
+spark-submit --conf spark.executor.memory=4g --conf spark.sql.shuffle.partitions=200
+Step 5: Testing and Validation
+Integrity Check:
+sql
+
+Copy
+SELECT customer_id
+FROM my_db.dim_customer
+WHERE is_active = true
+GROUP BY customer_id
+HAVING COUNT(*) > 1;
+History Check:
+sql
+
+Copy
+SELECT customer_id, COUNT(*) FROM my_db.dim_customer GROUP BY customer_id;
+Step 6: Monitor and Automate
+Monitor: Use Spark UI to track job performance.
+Automate: Schedule with Airflow:
+python
+
+Copy
+from airflow.operators.hive_operator import HiveOperator
+scd_task = HiveOperator(
+  task_id='scd_type2',
+  hql='scd_type2_merge.hql',
+  hive_cli_conn_id='hive_conn',
+  dag=dag
+)
+Sample Artifact for SCD Type 2 Without ACID
+scd_type2_merge.hql
+sql
+Show inline
+Differences from ACID-Based SCD Type 2
+Non-ACID:
+Uses INSERT OVERWRITE to rewrite tables/partitions.
+Requires temporary tables for merge logic.
+Higher I/O due to full rewrites.
+Deletions involve filtering or HDFS file removal.
+ACID:
+Uses UPDATE to set end_date and is_active.
+Uses DELETE for hard deletes.
+Simpler, less resource-intensive.
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅
+How does Hive integrate with Apache Spark?
+Answer: Hive uses Spark as an execution engine when configured with hive.execution.engine=spark. HiveQL queries are translated into Spark jobs, leveraging Spark’s in-memory processing for faster execution compared to MapReduce. The Hive metastore remains the metadata source.
+What are the benefits of using Spark as Hive’s execution engine?
+Answer:
+Faster query execution due to in-memory processing.
+Better resource management via Spark’s DAG execution.
+Support for complex transformations using Spark SQL.
+Improved scalability for large datasets.
+How do you configure Hive to use Spark?
+Answer: Update hive-site.xml:
+xml
+
+Copy
+<property>
+  <name>hive.execution.engine</name>
+  <value>spark</value>
+</property>
+<property>
+  <name>spark.master</name>
+  <value>yarn</value>
+</property>
+Ensure Spark is installed and accessible on the cluster.
+What is the Hive metastore’s role with Spark?
+Answer: The metastore stores table schemas, locations, and partitions in an RDBMS (e.g., MySQL). Spark accesses this metadata via HiveContext or SparkSession to execute HiveQL queries.
+What file formats are optimal for Hive with Spark?
+Answer: ORC and Parquet are optimal due to:
+Columnar storage for efficient queries.
+Compression (e.g., Snappy, Zlib).
+Predicate pushdown and vectorized execution support in Spark.
+SCD Type 2 Without ACID
+What is SCD Type 2, and why is it challenging without ACID in Hive?
+Answer: SCD Type 2 tracks historical changes in dimensions by maintaining multiple records with start_date, end_date, and is_active flags. Without ACID, Hive lacks direct UPDATE or DELETE, requiring workarounds like INSERT OVERWRITE with temporary tables.
+How do you implement SCD Type 2 in Hive without ACID using Spark?
+Answer: Use a merge pattern with temporary tables:
+Stage new data in a temporary table.
+Merge with existing data, expiring old records and adding new ones.
+Overwrite the target table or partition. Example workflow provided in Step 3 below.
+How do you handle deletions in SCD Type 2 without ACID?
+Answer:
+Soft Deletes: Mark records as is_active=false during the merge.
+Hard Deletes: Filter out records during INSERT OVERWRITE or remove HDFS files for specific partitions:
+bash
+
+Copy
+hdfs dfs -rm -r /user/hive/warehouse/my_db.db/dim_customer/partition_date=2025-05-22
+What is the file-level architecture for an SCD Type 2 table?
+Answer:
+Data stored in HDFS (e.g., /user/hive/warehouse/my_db.db/dim_customer/partition_date=2025-05-22).
+ORC/Parquet files for each partition, optimized for Spark’s columnar processing.
+Partitions create subdirectories, reducing query scan scope.
+How do you delete data at the file level for SCD Type 2?
+Answer:
+Drop partitions:
+sql
+
+Copy
+ALTER TABLE dim_customer DROP PARTITION (partition_date='2025-05-22');
+Remove HDFS files:
+bash
+
+Copy
+hdfs dfs -rm -r /user/hive/warehouse/my_db.db/dim_customer/partition_date=2025-05-22
+Refresh metadata:
+sql
+
+Copy
+MSCK REPAIR TABLE dim_customer;
+Hive and Spark Optimizations
+How does Spark optimize Hive queries for SCD Type 2?
+Answer:
+In-memory processing reduces I/O.
+Catalyst optimizer rewrites HiveQL for efficiency.
+Partition pruning and predicate pushdown minimize data scans.
+What is the role of partitioning in SCD Type 2 tables?
+Answer: Partitioning (e.g., by partition_date) creates HDFS subdirectories, reducing scan scope for queries and merges. Example:
+sql
+
+Copy
+CREATE TABLE dim_customer (...) PARTITIONED BY (partition_date STRING) STORED AS ORC;
+How does bucketing help in SCD Type 2 merges?
+Answer: Bucketing on customer_id ensures even data distribution, improving join performance during merges:
+sql
+
+Copy
+SET hive.enforce.bucketing=true;
+CREATE TABLE dim_customer (...) CLUSTERED BY (customer_id) INTO 10 BUCKETS;
+How do you optimize ORC files for SCD Type 2 in Spark?
+Answer:
+Enable compression: orc.compress=SNAPPY.
+Use hive.optimize.ppd=true for predicate pushdown.
+Configure stripe size: orc.stripe.size=67108864.
+What are the differences between Hive with MapReduce vs. Spark for SCD Type 2?
+Answer:
+MapReduce: Disk-based, slower, higher latency.
+Spark: In-memory, faster joins and merges, better for large-scale SCD Type 2 processing.
+Scalability: Spark handles larger datasets with dynamic resource allocation.
+SCD Type 2 Implementation Details
+How do you stage new data for SCD Type 2 in Hive?
+Answer: Create a temporary table to hold new/updated records:
+sql
+
+Copy
+CREATE TABLE temp_customer (
+  customer_id INT,
+  name STRING,
+  address STRING,
+  start_date DATE,
+  end_date DATE,
+  is_active BOOLEAN,
+  partition_date STRING
+)
+STORED AS ORC;
+How do you merge data for SCD Type 2 without ACID?
+Answer: Use INSERT OVERWRITE with a merge query (see artifact below). Spark optimizes the join and write operations.
+How do you validate SCD Type 2 data integrity?
+Answer: Run tests to ensure no overlapping active records:
+sql
+
+Copy
+SELECT customer_id
+FROM dim_customer
+WHERE is_active = true
+GROUP BY customer_id
+HAVING COUNT(*) > 1;
+How do you handle large datasets in SCD Type 2 merges?
+Answer:
+Partition by partition_date or customer_id.
+Use bucketing to reduce shuffle.
+Increase Spark executor memory: spark.executor.memory=4g.
+What is the impact of INSERT OVERWRITE in SCD Type 2?
+Answer: It rewrites the entire table or partition, replacing old data with merged results. This is resource-intensive but necessary without ACID.
+File-Level Operations
+How do you manage HDFS files for SCD Type 2?
+Answer:
+Partitions create HDFS subdirectories (e.g., /user/hive/warehouse/dim_customer/partition_date=2025-05-22).
+Use hdfs dfs -ls to inspect.
+Archive old partitions:
+bash
+
+Copy
+hdfs dfs -mv /user/hive/warehouse/dim_customer/partition_date=2024-01-01 /archive/
+How do you recover deleted HDFS files for SCD Type 2?
+Answer:
+Check .Trash directory:
+bash
+
+Copy
+hdfs dfs -mv /user/hive/.Trash/dim_customer/partition_date=2025-05-22 /user/hive/warehouse/dim_customer/
+Recreate metadata:
+sql
+
+Copy
+MSCK REPAIR TABLE dim_customer;
+What happens to HDFS files when dropping a partition?
+Answer: For managed tables, HDFS files are moved to .Trash. For external tables, files remain unless manually deleted.
+How do you optimize file size for SCD Type 2 tables?
+Answer:
+Merge small files:
+sql
+
+Copy
+ALTER TABLE dim_customer CONCATENATE;
+Set hive.merge.mapfiles=true.
+How do you handle file-level corruption in SCD Type 2 tables?
+Answer:
+Identify corrupted files using hdfs fsck /user/hive/warehouse/dim_customer.
+Restore from backups or recompute the partition.
+Testing and Validation
+How do you test SCD Type 2 logic in Hive with Spark?
+Answer:
+Check for duplicates:
+sql
+
+Copy
+SELECT customer_id, COUNT(*) FROM dim_customer WHERE is_active = true GROUP BY customer_id HAVING COUNT(*) > 1;
+Verify history:
+sql
+
+Copy
+SELECT customer_id, COUNT(*) FROM dim_customer GROUP BY customer_id HAVING COUNT(*) > 1;
+How do you automate SCD Type 2 tests?
+Answer: Use a Hive script in Airflow:
+python
+
+Copy
+from airflow.operators.hive_operator import HiveOperator
+test_task = HiveOperator(
+  task_id='scd_test',
+  hql='SELECT customer_id FROM dim_customer WHERE is_active = true GROUP BY customer_id HAVING COUNT(*) > 1',
+  hive_cli_conn_id='hive_conn',
+  dag=dag
+)
+How do you ensure data freshness for SCD Type 2?
+Answer: Check source table timestamps:
+sql
+
+Copy
+SELECT MAX(update_date) FROM source_customer;
+What are common SCD Type 2 test cases?
+Answer:
+No duplicate active records.
+Correct start_date and end_date for historical records.
+Consistent is_active flags.
+Partition integrity.
+How do you monitor SCD Type 2 job performance?
+Answer:
+Use Spark UI to track job metrics.
+Enable Hive metrics in hive-site.xml:
+xml
+
+Copy
+<property>
+  <name>hive.metrics.enabled</name>
+  <value>true</value>
+</property>
+Advanced Hive and Spark Concepts
+How does Spark’s Catalyst optimizer benefit SCD Type 2?
+Answer: It optimizes merge queries by pruning partitions, pushing down predicates, and rewriting joins for efficiency.
+What is the difference between Hive with Spark vs. Hive with Tez?
+Answer:
+Spark: In-memory, general-purpose, better for iterative workloads.
+Tez: DAG-based, disk-heavy, optimized for Hive’s batch processing.
+How do you handle skewed data in SCD Type 2 merges?
+Answer:
+Bucket tables on customer_id.
+Use SKEW JOIN:
+sql
+
+Copy
+SET hive.optimize.skewjoin=true;
+How do you enable dynamic partitioning for SCD Type 2?
+Answer:
+sql
+
+Copy
+SET hive.exec.dynamic.partition=true;
+SET hive.exec.dynamic.partition.mode=nonstrict;
+What is the role of Hive’s SerDe in SCD Type 2 tables?
+Answer: SerDe (e.g., OrcSerDe) serializes/deserializes data to/from ORC files, ensuring Spark can read/write SCD Type 2 records efficiently.
+How do you integrate Hive with Spark Streaming for SCD Type 2?
+Answer: Ingest streaming data into a source table, then schedule Hive jobs to process SCD Type 2 merges using Spark SQL.
+How do you handle complex joins in SCD Type 2 merges?
+Answer:
+Use bucketing to align join keys.
+Optimize with DISTRIBUTE BY and SORT BY:
+sql
+
+Copy
+SELECT * FROM dim_customer DISTRIBUTE BY customer_id SORT BY customer_id;
+How do you manage Hive’s metastore with Spark?
+Answer: Use SparkSession with Hive support:
+python
+
+Copy
+from pyspark.sql import SparkSession
+spark = SparkSession.builder \
+  .appName("HiveSCD") \
+  .config("spark.sql.catalogImplementation", "hive") \
+  .getOrCreate()
+What are the limitations of non-ACID Hive for SCD Type 2?
+Answer:
+No direct updates/deletes.
+Requires temporary tables and INSERT OVERWRITE.
+Higher I/O due to full table/partition rewrites.
+How do you optimize Spark for Hive SCD Type 2 jobs?
+Answer:
+Increase spark.executor.memory and spark.executor.cores.
+Set spark.sql.shuffle.partitions based on data size.
+Cache intermediate results:
+sql
+
+Copy
+CACHE TABLE temp_customer;
+Differences and Comparisons
+How does non-ACID SCD Type 2 differ from ACID-based?
+Answer:
+Non-ACID: Uses INSERT OVERWRITE with temporary tables; complex, resource-intensive.
+ACID: Uses UPDATE/DELETE for direct modifications; simpler, less overhead.
+What is the difference between Hive and Apache Hudi for SCD Type 2?
+Answer:
+Hive Non-ACID: Relies on INSERT OVERWRITE, no native history tracking.
+Hudi: Supports upserts, time-travel, and ACID via Merge-on-Read or Copy-on-Write.
+How does Hive with Spark differ from Spark SQL alone for SCD Type 2?
+Answer:
+Hive with Spark: Uses Hive metastore, HiveQL, and HDFS.
+Spark SQL: Direct DataFrame API, no metastore dependency, more flexible but less integrated with Hive ecosystem.
+What are the differences between ORC and Parquet for SCD Type 2?
+Answer:
+ORC: Optimized for Hive, better predicate pushdown.
+Parquet: Broader compatibility, supports schema evolution.
+How does partitioning differ from bucketing in SCD Type 2?
+Answer:
+Partitioning: Directory-based, filter-driven, uneven sizes.
+Bucketing: Hash-based, even distribution, improves joins.
+Advanced Scenarios
+How do you handle SCD Type 2 for streaming data?
+Answer: Use Spark Streaming to ingest data into a source table, then schedule Hive jobs to merge into dim_customer.
+How do you scale SCD Type 2 for millions of records?
+Answer:
+Partition by partition_date or customer_id.
+Use bucketing to reduce shuffle.
+Increase Spark resources: spark.executor.instances=10.
+How do you archive old SCD Type 2 partitions?
+Answer:
+sql
+
+Copy
+ALTER TABLE dim_customer DROP PARTITION (partition_date < '2024-01-01');
+Move to HDFS archive:
+bash
+
+Copy
+hdfs dfs -mv /user/hive/warehouse/dim_customer/partition_date=2023* /archive/
+How do you integrate SCD Type 2 with CI/CD?
+Answer: Use GitHub Actions to validate HiveQL scripts:
+yaml
+
+Copy
+name: Hive CI
+on: [pull_request]
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - run: hive -f scd_merge.hql --dry-run
+How do you monitor SCD Type 2 jobs with Spark?
+Answer:
+Use Spark UI for job metrics.
+Log outcomes to a Hive table:
+sql
+
+Copy
+INSERT INTO job_log (job_name, status, run_time)
+VALUES ('scd_type2', 'SUCCESS', CURRENT_TIMESTAMP);
+Detailed SCD Type 2 Implementation Without ACID
+Step 1: Set Up Hive and Spark
+Configure Hive for Spark:
+Update hive-site.xml (see Q3).
+Start HiveServer2 and Spark cluster.
+Create Database and Source Table:
+sql
+
+Copy
+CREATE DATABASE my_db;
+CREATE EXTERNAL TABLE my_db.source_customer (
+  customer_id INT,
+  name STRING,
+  address STRING,
+  update_date DATE
+)
+STORED AS PARQUET
+LOCATION '/user/hive/warehouse/my_db.db/source_customer';
+Create SCD Type 2 Table:
+sql
+
+Copy
+CREATE TABLE my_db.dim_customer (
+  customer_id INT,
+  name STRING,
+  address STRING,
+  start_date DATE,
+  end_date DATE,
+  is_active BOOLEAN
+)
+PARTITIONED BY (partition_date STRING)
+STORED AS ORC
+LOCATION '/user/hive/warehouse/my_db.db/dim_customer';
+Step 2: Implement SCD Type 2 Merge
+Create Temporary Table:
+sql
+
+Copy
+CREATE TABLE my_db.temp_customer (
+  customer_id INT,
+  name STRING,
+  address STRING,
+  start_date DATE,
+  end_date DATE,
+  is_active BOOLEAN,
+  partition_date STRING
+)
+STORED AS ORC;
+Stage New Data:
+sql
+
+Copy
+INSERT INTO my_db.temp_customer
+SELECT
+  customer_id,
+  name,
+  address,
+  CURRENT_DATE AS start_date,
+  NULL AS end_date,
+  true AS is_active,
+  '2025-05-22' AS partition_date
+FROM my_db.source_customer;
+Merge Logic:
+Expire old records and add new ones using INSERT OVERWRITE.
+Step 3: Handle Deletions
+Soft Deletes: Handled in merge logic by setting is_active=false.
+Hard Deletes: Filter out records:
+sql
+
+Copy
+INSERT OVERWRITE TABLE my_db.dim_customer PARTITION (partition_date)
+SELECT * FROM my_db.dim_customer
+WHERE customer_id NOT IN (SELECT customer_id FROM my_db.source_deletes);
+Step 4: Test and Validate
+Integrity Check:
+sql
+
+Copy
+SELECT customer_id
+FROM my_db.dim_customer
+WHERE is_active = true
+GROUP BY customer_id
+HAVING COUNT(*) > 1;
+History Check:
+sql
+
+Copy
+SELECT customer_id, COUNT(*) FROM my_db.dim_customer GROUP BY customer_id;
+Step 5: Optimize and Monitor
+Optimize:
+Partition by partition_date.
+Bucket by customer_id.
+Cache temporary tables in Spark:
+sql
+
+Copy
+CACHE TABLE temp_customer;
+Monitor:
+Use Spark UI for job performance.
+Log to a Hive table (see Q50).
+Sample Artifact for SCD Type 2 Without ACID
+scd_type2_merge.hql
+sql
+Show inline
+Differences from ACID-Based SCD Type 2
+Non-ACID:
+Uses INSERT OVERWRITE to rewrite tables/partitions.
+Requires temporary tables for merge logic.
+Higher I/O and compute due to full rewrites.
+Complex to manage deletions (filtering or file removal).
+ACID:
+Uses UPDATE to set end_date and is_active.
+Uses DELETE for hard deletes.
+Simpler logic, less resource-intensive.
+Example:
+sql
+
+Copy
+UPDATE dim_customer SET end_date = CURRENT_DATE, is_active = false
+WHERE customer_id = 1001 AND is_active = true;

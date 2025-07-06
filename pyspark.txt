@@ -1,0 +1,1338 @@
+Architect----✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ 2.7--Hadoop 2.6..
+
++++++++++++++++++++++++++++
+ 1. spark-submit my_script.py✅✅✅✅
+Launches your PySpark application and submits it to the cluster.
+
+Driver starts and initializes SparkSession and SparkContext.
+
+✅ 2. Driver Program✅✅✅✅
+Master node running your PySpark script.
+
+Controls the job execution, creates logical plans, and receives final output.
+
+
+spark = SparkSession.builder.appName("MyApp").getOrCreate()
+✅ 3. SparkSession / Logical Plan✅✅✅✅
+Any transformation (filter, select, etc.) builds a logical plan lazily.
+
+No execution happens until an action is triggered.
+
+
+df = spark.read.csv("data.csv").filter("age > 30")  # logical plan created
+✅ 4. DAG Scheduler✅✅✅✅
+On action (e.g., collect()), logical plan → optimized plan → physical plan → DAG.
+
+Breaks physical plan into stages based on wide vs narrow transformations.
+
+
+df.show()  # triggers DAG creation
+✅ 5. Stage Creation✅✅✅✅
+Stage = set of narrow transformations.
+
+New stage created at each wide transformation (like groupBy, join, distinct).
+
+
+df.groupBy("dept").count()  # wide → new stage
+✅ 6. Job Creation✅✅✅✅✅
+Every action (like .collect(), .write(), .count()) = one job.
+
+A job is composed of one or more stages.
+
+
+df.write.parquet("/output")  # one job with 2+ stages
+✅ 7. Cluster Manager (YARN/K8s/Standalone)✅✅✅✅
+Allocates executors based on request from the driver.
+
+Handles container lifecycle and failure recovery.
+
+✅ 8. Task Scheduler✅✅✅✅
+Splits stages into tasks (one task per partition).
+
+Distributes tasks across executors using TaskSchedulerImpl.
+
+✅ 9. Executors✅✅✅✅
+JVMs on worker nodes that execute tasks, read/write data, cache, shuffle.
+
+Run independently and send results to driver.
+
+✅ 10. Shuffle / Exchange✅✅✅✅
+On wide transformations, Spark shuffles data → writes to disk → transfers over network.
+
+Expensive → try to minimize via broadcast, partition tuning.
+
+✅ 11. Caching / Persistence✅✅✅✅
+cache() and persist() store intermediate results in memory/disk.
+
+Reduces recomputation and lineage depth.
+
+
+df.cache().count()
+✅ 12. Garbage Collection (GC)✅✅✅✅
+JVM GC clears unused objects. High GC time = memory issues.
+
+Use spark.executor.memory, spark.memory.fraction, or G1GC.
+
+
+--conf "spark.executor.extraJavaOptions=-XX:+UseG1GC"
+✅ 13. Result Collection✅✅✅
+For actions like .collect(), the driver aggregates and retrieves data from executors.
+
+Caution: large datasets can cause OOM in driver.
+
+✅ 14. SparkContext Shutdown✅✅✅✅
+After job completes, SparkContext is stopped.
+
+Executors shut down, resources are released.
+
+🔄 Example DAG Breakdown (Simple Pipeline)
+
+
+df = spark.read.csv("s3://data.csv")        # Input
+df2 = df.filter("age > 30")                 # Narrow (same stage)
+df3 = df2.groupBy("dept").count()           # Wide (new stage)
+df3.write.parquet("s3://output/")           # Action → DAG → Job → Stages → Tasks
+
+
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+🔁 Narrow Transformations------------✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ 
+(Data stays in same partition – no shuffle)✅ 
+
+Transformation	Impact---
+map()		Executes in-place on each partition (fast, no shuffle).
+filter()	Keeps only rows matching condition within each partition.
+flatMap()	Similar to map but returns multiple outputs per input (no shuffle).
+union()		Combines RDDs/DFs without reshuffling data.
+sample()	Samples data within each partition locally.
+withColumn()	Adds or updates column using row-wise logic (stays local).
+select()	Projects selected columns, no data movement.
+limit()	Scans partition-wise until limit is satisfied.
+
+🔁 Wide Transformations-----✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ 
+(Requires shuffle – data moves between partitions)
+
+Transformation	Impact
+groupBy()	Groups data across partitions, triggers shuffle.
+distinct()	Deduplicates across partitions, expensive shuffle.
+join()	Combines data from multiple DataFrames across partitions.
+repartition()	Reshuffles all data to specified number of partitions.
+sortBy()	Sorts records globally, causes full shuffle.
+reduceByKey()	Combines values per key after shuffling similar keys.
+coalesce()	Reduces number of partitions with partial shuffle.
+orderBy()	Like sortBy; performs full shuffle to guarantee order.
+
+Summary:
+
+Narrow: Fast, pipelined, stays local — better performance.
+
+Wide: Triggers shuffle, creates new stage — more expensive.
+
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+🔁 Narrow vs Wide Transformations and Their Impact✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ 
+Type	Examples	Effect
+Narrow	map, filter, withColumn	Operates on a single partition; no shuffle
+Wide	join, groupBy, distinct	Requires shuffling data across partitions
+
+👉 Narrow transformations------------
+Output depends only on input from one partition
+
+Spark pipelines them into the same stage
+
+Fast, no shuffle
+
+df.filter("age > 30").select("name")  # narrow → same stage
+👉 Wide transformations--------------
+Output depends on multiple partitions
+
+Spark creates a new stage after a shuffle boundary
+
+Slower, requires data exchange
+
+df1.join(df2, "id")  # wide → triggers shuffle → new stage
+🎯 Job → Stage → Task Breakdown Example
+df = spark.read.csv("data.csv")
+df1 = df.filter("age > 30")               # Narrow
+df2 = df1.groupBy("country").count()      # Wide (shuffle)
+df2.show()                                # Action
+Component	What Happens
+Job	Created when .show() is called
+Stage 1	Includes read + filter (narrow, no shuffle)
+Stage 2	Includes groupBy.count (wide, shuffle)
+Tasks	Each stage splits into tasks, one per data partition
+
+___________+++++++++++++++++++++++++++++++++++++++++++++++✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ 
++++++++++++++++++++
+spark-submit \
+  --master yarn \
+  --deploy-mode cluster \
+  --num-executors 10 \
+  --executor-memory 4G \
+  --executor-cores 4 \
+  --driver-memory 2G \
+  --conf spark.sql.shuffle.partitions=100 \
+  --conf spark.dynamicAllocation.enabled=true \
+  --jars myLib.jar \
+  --files config.properties \
+  --py-files dependencies.zip \
+  my_app.py \
+  --input s3://mybucket/data \
+  --output s3://mybucket/output
+++++++++++++ How to calculate memory---------✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ 
+Example Scenario 1: 10 GB file processing
+🔹🧠🧠🧠🧠🧠🧠🧠🧠🧠🧠🧠 Step 1: Estimate Memory per Executor
+Start with how much memory 1 executor should handle.
+
+Suppose 1 executor handles 1 GB of data safely (based on transformations, caching, join complexity).
+
+Then:
+
+bash
+Copy
+Edit
+num_executors = ceil(10 GB / 1 GB) = 10 executors
+🔸 You could increase this to 2 GB/executor if transformations are simple (e.g., just reading + filtering).
+🔸 Reduce it to 512MB/executor for heavy shuffles, wide joins, caching.
+
+🔹🧠🧠🧠🧠🧠🧠🧠 Step 2: Set Executor Memory and Overhead
+Suppose you allocate 2 GB RAM per executor, Spark will keep ~7% as overhead.
+
+Formula:
+
+bash
+Copy
+Edit
+executor_memory = 2 GB * (1 - 0.07) = ~1.86 GB usable
+Remaining ~140 MB used for shuffle buffers, serialization, GC.
+
+🔸 You can also override explicitly:
+
+bash
+Copy
+Edit
+--conf spark.executor.memoryOverhead=512m
+📌 MemoryOverhead is crucial if you do wide transformations like join, groupBy, distinct.
+
+🔹🧠🧠🧠🧠🧠🧠🧠🧠🧠🧠 Step 3: Set Number of Executor Cores
+Keep 1-5 tasks per executor to balance parallelism and memory.
+
+Example: Assign 2 cores per executor → each executor can run 2 tasks concurrently.
+
+So for 10 executors:
+
+bash
+Copy
+Edit
+total_cores = 10 * 2 = 20 cores
+🔸 Avoid more than 5 cores per executor as tasks may compete for memory and GC will suffer.
+
+🔹🧠🧠🧠🧠🧠🧠🧠🧠🧠🧠 Step 4: Set Shuffle Partitions
+Spark default is 200 shuffle partitions. You should tune this based on total cores.
+
+Formula:
+
+bash
+Copy
+Edit
+spark.sql.shuffle.partitions = total_cores * 2 = 40
+More partitions = better parallelism but more small files/shuffles.
+
+🔸 For simple aggregations, set = total_cores.
+🔸 For skewed or high cardinality joins, increase beyond 2 * cores.
+
+🔹🧠🧠🧠🧠🧠🧠🧠🧠🧠🧠 Step 5: Set Driver Memory
+Driver loads schema, job plan, and collects results for .collect() or .take().
+
+If your output is expected to be 500 MB:
+
+bash
+Copy
+Edit
+--driver-memory 2g
+If you run .collect() on full 10 GB, you'd need driver memory ~10 GB (not recommended).
+
+🔸 Avoid collect() on huge data — prefer write(), foreachPartition().
+
+🔹 Step 6: Enable Dynamic Allocation (optional)
+bash
+Copy
+Edit
+--conf spark.dynamicAllocation.enabled=true
+--conf spark.dynamicAllocation.minExecutors=2
+--conf spark.dynamicAllocation.maxExecutors=15
+--conf spark.shuffle.service.enabled=true
+Spark scales executors based on load — useful for mixed workloads.
+
+Good for interactive clusters, but disable for strict resource-bound batch jobs.
+
+✅ 🧠🧠🧠🧠🧠🧠Full Spark Submit Command:
+bash
+Copy
+Edit
+spark-submit \
+--num-executors 10 \
+--executor-memory 2G \
+--executor-cores 2 \
+--driver-memory 2G \
+--conf spark.sql.shuffle.partitions=40 \
+--conf spark.dynamicAllocation.enabled=false \
+my_script.py
+✅ 🧠🧠🧠🧠🧠🧠🧠🧠🧠🧠🧠Example Scenario 2: 100 MB file processing🧠🧠🧠
+This is a tiny dataset for Spark.
+
+You don’t need 10 executors — it will increase startup and memory unnecessarily.
+
+Suggested:
+num-executors = 1 or 2
+
+executor-memory = 512M to 1G
+
+cores = 1
+
+shuffle.partitions = 4 to 8
+
+Reason:
+100 MB will probably be split into 1–2 partitions.
+
+Parallelism doesn’t matter much; overhead will be more than processing time if over-allocated.
+
+💡 Additional Tips:🧠🧠🧠🧠🧠
+Scenario	Setting	Why
+Heavy joins	Increase memory & overhead	Shuffle buffers grow
+Caching	Use persist(StorageLevel.MEMORY_AND_DISK)	Avoid OOM
+Skewed keys	Set spark.sql.adaptive.enabled=true	Handle large keys
+Too many small files	Use coalesce() before write	Reduce S3/HDFS overhead
+High GC	Use G1GC, limit cached datasets	GC tuning critical
+
+
+
+++++++++++------------------------------------------------------
+++++++++++++
+🧠 Example for 100 GB Data
+Value	Formula or Assumption
+DATA_SIZE_GB = 100	your input
+MEM_PER_EXECUTOR_GB = 8	(safe for large data)
+CORES_PER_EXECUTOR = 4	standard
+EXECUTOR_OVERHEAD = 0.07	default
+
+✅ Apply:
+
+
+num_executors = 100 / 8 = 13
+executor_memory = 8 * (1 - 0.07) ≈ 7.4G
+total_cores = 13 * 4 = 52
+shuffle_partitions = 52 * 2 = 104
+✅ Final Spark Submit Snippet
+
+spark-submit \
+  --num-executors 13 \
+  --executor-cores 4 \
+  --executor-memory 7.4G \
+  --driver-memory 4G \
+  --conf spark.sql.shuffle.partitions=104 \
+  my_app.py
+++++++++++++++++++++++++++++
++++++++++++++++++++Parameter	Description
+--master	Cluster manager (yarn, local[*], spark://, k8s://)
+--deploy-mode	client (driver on client machine) or cluster (driver runs on cluster)
+--num-executors	Total number of executor JVMs
+--executor-memory	Memory per executor (e.g. 4G)
+--executor-cores	Number of cores per executor
+--driver-memory	Memory allocated to driver
+--conf	Custom Spark configurations
+--jars	Additional Java/Scala libraries
+--files	Config or input files to distribute
+--py-files	Python dependencies (e.g. zipped packages)
+my_app.py	Your Spark application script (PySpark)
+--input, --output	Arguments passed to your application
++++++++++++++++++++++++++++++++
+
+
+
+cache()✅ ✅ ✅ ✅ 
+Stores a DataFrame in memory on first action.
+
+Speeds up repeated reads of intermediate results.
+
+Uses LRU policy; can spill to disk if memory is low.
+
+Best for iterative algorithms or reuse-heavy stages.
+
+df.cache(); df.count()
+
+🔹 persist()✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ 
+More flexible than cache; allows custom storage level.
+
+Use for large DataFrames: MEMORY_AND_DISK, DISK_ONLY, etc.
+
+Retains data even after action unlike cache (optional).
+
+Use when caching fails due to memory constraints.
+
+df.persist(StorageLevel.MEMORY_AND_DISK)
+
+🔹 partitioning✅ ✅ ✅ ✅ ✅ ✅ 
+Distributes data across Spark tasks for parallel processing.
+
+Affects data movement and performance of wide operations.
+
+Can be user-defined (repartition, coalesce).
+
+Too many small partitions cause overhead; too few reduce parallelism.
+
+df.repartition(10) or df.coalesce(2)
+
+🔹 bucketing✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ 
+Hashes column values into a fixed number of buckets.
+
+Optimizes join and aggregation performance.
+
+Unlike partitioning, buckets don’t create separate files but improve Spark plan.
+
+Useful for large lookup tables joined often.
+
+df.write.bucketBy(8, 'id').saveAsTable('bucketed')
+
+
+++++++++++++++++++++++++++++++
+✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ Narrow Transformation (10 Lines):✅ ✅ ✅ ✅ ✅ ✅ ✅ 
+Data is processed within the same partition.
+
+No data shuffling across the cluster.
+
+Examples: map(), filter(), withColumn(), union()
+
+One-to-one mapping of input to output partitions.
+
+Fast and memory-efficient.
+
+No need to recompute other partitions if one fails.
+
+No new stage is created in the DAG.
+
+Mostly occurs within a single stage.
+
+Ideal for simple column-wise operations.
+
+Easier to optimize and monitor.
+
+Example:
+
+python
+Copy
+Edit
+df.filter(col("age") > 30).select("name")
+🔹 ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ Wide Transformation (10 Lines):✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ 
+Data is shuffled between partitions or nodes.
+
+Requires network I/O → expensive operation.
+
+Examples: groupByKey(), reduceByKey(), join(), distinct()
+
+One-to-many or many-to-one mapping.
+
+Causes a stage boundary in the DAG.
+
+Spark creates shuffle files and new stages.
+
+Can cause skew if data is uneven.
+
+Requires careful partitioning and tuning.
+
+Failure in one partition may cause recomputation.
+
+Key driver for performance bottlenecks.
+
+Example:
+
+
+df1.join(df2, "id")
+🔧✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅  Job & Stage Creation in Spark (10 Lines):✅ ✅ ✅ ✅ ✅ ✅ 
+
+Spark breaks action (collect(), write(), etc.) into jobs.
+
+A job is made up of stages – separated by wide transformations.
+
+Each stage contains tasks, one per partition.
+
+Stages are either narrow or wide.
+
+Narrow stages = one-to-one execution → no shuffle.
+
+Wide stages = require shuffle → new stage boundary.
+
+DAG Scheduler builds DAG from transformations.
+
+Tasks are submitted to Task Scheduler for execution.
+
+Jobs and stages are visible in Spark UI.
+
+Optimizing transformations minimizes stage count.
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+++++++++++++++++++++++++++
+++Transformation--+++++++++++++++++++++++++++++++++✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ 
+++++++++++++++++++++++++++++
+select – Projects specific columns from a DataFrame.
+df.select('name', 'age') — Narrow: Operates within partition without reshuffling data.
+
+filter – Filters rows based on a condition.
+df.filter(df.age > 30) — Narrow: Filtering doesn’t require data movement.
+
+where – Same as filter, just different syntax.
+df.where(df.salary > 50000) — Narrow: Evaluates condition within local partition.
+
+withColumn – Adds or modifies a column value.
+df.withColumn('score_plus_10', df.score + 10) — Narrow: Local transformation unless used after aggregation.
+
+distinct – Removes duplicate rows.
+df.distinct() — Wide: Needs to compare data across all partitions (shuffle).
+
+dropDuplicates – Drops duplicate rows on specific columns.
+df.dropDuplicates(['id', 'dept']) — Wide: Compares globally across partitions.
+
+groupBy – Groups data for aggregation.
+df.groupBy('region').count() — Wide: Aggregation requires shuffle.
+
+agg – Aggregates grouped data.
+df.groupBy('region').agg({'sales': 'sum'}) — Wide: Global aggregation needs shuffle.
+
+join – Joins two DataFrames on a key.
+df1.join(df2, 'id') — Wide: Matching keys across partitions causes shuffle.
+
+union – Appends rows from another DataFrame.
+df1.union(df2) — Wide: Data alignment may require reshuffling.
+
+repartition – Redistributes data into specified partitions.
+df.repartition(10) — Wide: Triggers shuffle to redistribute data evenly.
+
+coalesce – Reduces number of partitions.
+df.coalesce(2) — Wide: Efficiently merges partitions, small shuffle.
+
+explode – Expands arrays into multiple rows.
+df.select(explode(df.items)) — Wide: Expanding requires reshuffling data.
+
+pivot – Converts row values into column headers.
+df.groupBy('dept').pivot('year').sum('sales') — Wide: Reshaping requires global shuffle.
+
+sort/orderBy – Sorts rows by column(s).
+df.orderBy('score') — Wide: Global sorting triggers shuffle.
+
+limit – Limits the number of returned rows.
+df.limit(10) — Narrow: Retrieves rows from first few partitions.
+
+withColumnRenamed – Renames a column.
+df.withColumnRenamed('old', 'new') — Narrow: Metadata-only change.
+
+alias – Renames column temporarily.
+df.select(df.name.alias('username')) — Narrow: Local and in-memory rename.
+
+sample – Randomly samples rows.
+df.sample(False, 0.1) — Narrow: Partition-local operation.
+
+drop – Drops a column from the DataFrame.
+df.drop('age') — Narrow: Local metadata change.
+unionByName – Merges two DataFrames by column names.
+df1.unionByName(df2) — Wide: May shuffle if column order differs.
+
+intersect – Returns common rows between DataFrames.
+df1.intersect(df2) — Wide: Requires global comparison.
+
+subtract – Returns rows in df1 not in df2.
+df1.subtract(df2) — Wide: Compares across partitions.
+
+cube – Performs multi-level grouping on all combinations.
+df.cube('region', 'year').sum() — Wide: Needs reshuffle for each grouping.
+
+rollup – Aggregates data hierarchically.
+df.rollup('region', 'year').sum() — Wide: Global partial aggregations.
+
+na.fill() – Replaces nulls with specified values.
+df.na.fill(0) — Narrow: Nulls replaced in place.
+
+na.drop() – Drops rows with null values.
+df.na.drop() — Narrow: Done per partition.
+
+na.replace() – Replaces specified values.
+df.na.replace(['N/A'], ['0']) — Narrow: Local value substitution.
+
+withColumnRenamed() – Renames a single column.
+df.withColumnRenamed('old', 'new') — Narrow: Metadata change only.
+
+split() – Splits strings into arrays.
+df.withColumn('words', split(df.text, ' ')) — Narrow: String operation in-place.
+
+regexp_replace() – Replaces substrings matching a regex.
+df.withColumn('clean', regexp_replace(df.text, '[^a-z]', '')) — Narrow: Per-row transformation.
+
+regexp_extract() – Extracts substrings via regex.
+df.withColumn('domain', regexp_extract(df.email, '@(.+)', 1)) — Narrow: Local extraction.
+
+when() – Adds conditional logic to a column.
+df.withColumn('grade', when(df.score > 50, 'Pass').otherwise('Fail')) — Narrow: Row-based logic.
+
+isin() – Checks if column value is in a list.
+df.filter(df.city.isin('NY', 'LA')) — Narrow: Lookup is local.
+
+isNull() / isNotNull() – Filters null or non-null values.
+df.filter(df.age.isNotNull()) — Narrow: Local null filtering.
+
+cast() – Changes column data type.
+df.withColumn('age', df.age.cast('int')) — Narrow: Per-row conversion.
+
+dropna() – Drops rows with any nulls.
+df.dropna() — Narrow: Filters null rows per partition.
+
+fillna() – Alias for na.fill().
+df.fillna(0) — Narrow: In-place fill.
+
+replace() – Alias for na.replace().
+df.replace('N/A', 0) — Narrow: Per-row substitution.
+
+selectExpr() – SQL-style column selection.
+df.selectExpr('salary * 0.1 as tax') — Narrow: Local expression parsing.
+
+monotonically_increasing_id() – Adds unique ID per row.
+df.withColumn('id', monotonically_increasing_id()) — Narrow: Local but not sequential.
+
+lit() – Adds a constant column.
+df.withColumn('flag', lit(1)) — Narrow: Adds static value per row.
+
+row_number() – Adds row index per group.
+df.withColumn('row', row_number().over(Window.partitionBy('dept'))) — Wide: Requires sort/shuffle.
+
+dense_rank() / rank() – Ranks rows per partition.
+df.withColumn('rank', dense_rank().over(Window.partitionBy('dept').orderBy('sales'))) — Wide: Requires global ordering.
+
+lead() / lag() – Accesses next/previous row value.
+df.withColumn('prev', lag('score', 1).over(Window.orderBy('date'))) — Wide: Windowing causes shuffle.
+
+over() – Used with window functions to define partitions.
+row_number().over(Window.partitionBy('region')) — Wide: Partitioning causes shuffle.
+
+explode_outer() – Similar to explode, but includes nulls.
+df.select(explode_outer(df.items)) — Wide: Like explode with more tolerance.
+
+array_contains() – Checks if array has a specific value.
+df.filter(array_contains(df.tags, 'urgent')) — Narrow: Per-row array lookup.
+
+concat() – Concatenates columns.
+df.withColumn('full_name', concat(df.fname, lit(' '), df.lname)) — Narrow: String function per row.
+
+mapValues() – Applies function to values in key-value RDD.
+df.rdd.mapValues(lambda x: x + 1) — Narrow: Local transformation.
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+Action+++++++++++++++++++✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ 
++++++++++++++++++++++++++
+Actions – Description & Execution
+show() – Displays top rows in tabular format.
+df.show(5) — Triggers job: Collects partial result to driver.
+
+collect() – Fetches all rows to the driver.
+df.collect() — Expensive: Use only with small data.
+
+count() – Returns number of rows.
+df.count() — Wide: Requires scanning full DataFrame.
+
+first() / head() – Returns first row.
+df.first() — Narrow: Reads from first partition.
+
+foreach() – Applies a function to each row.
+df.foreach(lambda r: print(r)) — Narrow: Executes on executors.
+
+
+show() – Displays top rows from the DataFrame.
+df.show(5)
+
+collect() – Brings all rows to the driver as a list.
+rows = df.collect()
+
+count() – Returns the number of rows.
+df.count()
+
+first() – Returns the first row.
+df.first()
+
+take(n) – Returns the first n rows.
+df.take(10)
+
+head() – Alias of take(1) or first().
+df.head()
+
+foreach() – Applies a function to each row.
+df.foreach(lambda r: print(r))
+
+foreachPartition() – Applies a function to each partition.
+df.foreachPartition(lambda p: print(len(list(p))))
+
+reduce() – Reduces elements using a function.
+df.rdd.reduce(lambda x, y: x + y)
+
+fold() – Reduces with a zero value and function.
+df.rdd.fold(0, lambda x, y: x + y)
+
+aggregate() – Flexible aggregation with seq and comb functions.
+df.rdd.aggregate((0, 0), lambda acc, val: (acc[0]+val, acc[1]+1), lambda x, y: (x[0]+y[0], x[1]+y[1]))
+
+max() – Gets the max value in a column.
+df.select('score').rdd.max()
+
+min() – Gets the minimum value.
+df.select('score').rdd.min()
+
+sum() – Calculates the sum of a column.
+df.select('amount').rdd.sum()
+
+mean() – Returns the average.
+df.select('amount').rdd.mean()
+
+toLocalIterator() – Iterates rows without collecting everything.
+for row in df.toLocalIterator(): print(row)
+
+cache() – Marks DataFrame for caching.
+df.cache(); df.count()
+
+persist() – Persists DataFrame with custom storage level.
+df.persist(StorageLevel.MEMORY_AND_DISK); df.count()
+
+unpersist() – Removes cached data from memory.
+df.unpersist()
+
+takeSample() – Returns a sample subset.
+df.rdd.takeSample(False, 5)
+
+saveAsTextFile() – Saves RDD to text format.
+df.rdd.saveAsTextFile('/tmp/output')
+
+saveAsSequenceFile() – Saves RDD as Hadoop SequenceFile.
+df.rdd.saveAsSequenceFile('/tmp/seq')
+
+saveAsObjectFile() – Stores serialized objects.
+df.rdd.saveAsObjectFile('/tmp/obj')
+
+save() – Saves DataFrame to a data source.
+df.write.save('/mnt/path')
+
+write.csv() – Saves DataFrame in CSV format.
+df.write.csv('/mnt/csv')
+
+write.json() – Saves in JSON format.
+df.write.json('/mnt/json')
+
+write.parquet() – Saves in Parquet format.
+df.write.parquet('/mnt/parquet')
+
+write.orc() – Saves in ORC format.
+df.write.orc('/mnt/orc')
+
+toPandas() – Converts to a Pandas DataFrame.
+pdf = df.toPandas()
+
+inputFiles() – Returns list of input files.
+df.inputFiles()
+
+isEmpty() – Checks if DataFrame is empty.
+df.isEmpty()
+
+explain() – Prints physical and logical plan.
+df.explain(True)
+
+observe() – Collects metrics while evaluating DataFrame.
+df.observe('metric', expr('avg(score)'))
+
+rdd.countByValue() – Counts each row occurrence.
+df.rdd.countByValue()
+
+rdd.countByKey() – Counts key occurrences.
+df.rdd.countByKey()
+
+rdd.top() – Returns top n elements.
+df.rdd.top(3)
+
+rdd.takeOrdered() – Returns N smallest rows.
+df.rdd.takeOrdered(5)
+
+rdd.collectAsMap() – Collects RDD as a dictionary.
+df.rdd.collectAsMap()
+
+rdd.histogram() – Builds histogram from values.
+df.rdd.flatMap(lambda r: r).histogram(5)
+
+rdd.stats() – Computes statistics for RDD values.
+df.rdd.map(lambda r: r[0]).stats()
+
+
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
++++++++++++++++++++++++++++++
+AWS--pyspark configure------✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ 
+
+
++++++++++++++++++++++
+Total Requirement:
+12,000 GB RAM
+
+1500 vCPUs
+
+1.5 PB storage
+
+Option 1: Amazon EMR (Best for Spark Big Data ETL)
+Instance Types (optimized for Spark):
+
+r5d.8xlarge: 256 GB RAM, 32 vCPUs, 2 x 600 GB NVMe SSD
+
+m6gd.16xlarge: 256 GB RAM, 64 vCPU, 2.4TB NVMe SSD
+
+i3.8xlarge: 244 GB RAM, 32 vCPUs, 4 x 1.9TB NVMe SSD
+
+You need ~60 instances of r5d.8xlarge to meet HASS capacity.
+
+Use EMR on EBS for scalable storage if 1TB local isn't enough.
+
+Option 2: AWS Glue (for managed Spark ETL)✅ ✅ ✅ ✅ ✅ ✅ 
+Glue provides DPUs (1 DPU = 4 vCPU + 16GB RAM).
+
+For 1500 HASS (12K GB RAM, 1500 vCPUs), you’d need:
+
+375 DPUs minimum (16GB each).
+
+But Glue does not give you HDD—you use S3 for storage.
+
+Option 3: Launch EC2 Manually✅ ✅ ✅ ✅ ✅ ✅ 
+Choose EC2 types from these families:
+
+r6i / r5 / r6g – memory optimized (good for Spark)
+
+i3 / i4i – high IOPS local NVMe SSD (HDD-style)
+
+m6gd – balanced + NVMe
+
+Configure HDFS on attached EBS/NVMe or mount S3 for storage.
+
+Needs full management (setup Spark, Hadoop, etc.).
+
+🔷 Summary Recommendation:
+Use Case	Best Option	Notes
+Spark ETL	Amazon EMR	Scalable, HDFS/S3, choose EC2
+Glue Jobs	AWS Glue	Serverless Spark, no HDD
+Custom Infra	EC2 + Spark	Full control, harder to manage
+
+Want cost comparison or EMR cluster JSON setup for this config?
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+✅ ✅ ✅ ✅ ✅ PRODUCTION-----------OPTIMIZATION------✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ 
+++++++++++++++++++++++++++++++++_+++++++++++++++++++++++++++++++++++++++++++++++++++++
+Data Partitioning & Skew Handling✅ ✅ ✅ ✅ 
+
+Partition your data wisely – use partitionBy() on high-cardinality columns.
+
+Avoid small files problem – use coalesce() or repartition() to control output files.
+
+Skew join handling – use salting or broadcast join on skewed keys.
+
+Use bucketing for joins – improves join efficiency on bucketed tables.
+
+Avoid shuffle-intensive operations – minimize groupByKey, prefer reduceByKey.
+
+✅ B. Caching & Persisting✅ ✅ ✅ ✅ ✅ ✅ 
+Cache only when reused – use .cache() only when DataFrame is reused.
+
+Use correct persistence level – e.g., MEMORY_AND_DISK_SER for large datasets.
+
+Avoid caching large intermediate DataFrames unnecessarily.
+
+✅ C. Join Optimization✅ ✅ ✅ 
+Broadcast small tables – use broadcast(df) to avoid shuffles.
+
+Use join hints – e.g., .join(df2.hint("broadcast")).
+
+Always join on partitioned or indexed columns.
+
+Use map-side join when possible (broadcast joins).
+
+✅ D. Transformations & Actions✅ ✅ ✅ ✅ 
+Prefer mapPartitions over map for heavy operations.
+
+Use reduceByKey instead of groupByKey.
+
+Avoid using UDFs – prefer native Spark SQL functions.
+
+Avoid nested transformations – flatten logic.
+
+Chain transformations before actions – avoid interim actions.
+
+✅ E. Data Format & Storage✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ 
+Use columnar formats like Parquet or ORC.
+
+Enable compression (Snappy) – reduces storage and I/O.
+
+Avoid CSV/JSON in production unless required.
+
+Set correct spark.sql.files.maxPartitionBytes (e.g., 128MB).
+
+Tune spark.sql.shuffle.partitions (default 200, reduce if dataset is small).
+
+✅ F. Memory & Execution Tuning✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ 
+Adjust executor memory/cpu based on workload.
+
+Use spark.memory.fraction to control memory use for execution vs cache.
+
+Avoid data spilling – monitor and size spark.executor.memory properly.
+
+Set parallelism correctly – spark.default.parallelism ≈ total cores.
+
+Use --num-executors, --executor-memory, --executor-cores carefully.
+
+✅ G. Job Debugging & Monitoring✅ ✅ ✅ ✅ ✅ ✅ 
+Enable Spark UI and event logs for monitoring.
+
+Use Spark History Server for job analysis.
+
+Log job execution time per stage using listeners.
+
+✅ H. SQL & Catalog Optimizations✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ 
+Use explain() or explain(True) to view physical/logical plan.
+
+Avoid SELECT * – project only needed columns.
+
+Enable adaptive execution – spark.sql.adaptive.enabled=true.
+
+Enable dynamic partition pruning – spark.sql.optimizer.dynamicPartitionPruning.enabled=true.
+
+Use cost-based optimizer (CBO) – requires table statistics.
+
+✅ I. S3 / HDFS-Specific✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ 
+Use s3a:// for optimized S3 access (not s3:// or s3n://).
+
+Avoid listing large S3 directories – access by full path if possible.
+
+Enable fast-upload for Hadoop S3 (if available).
+
+Avoid overwriting the same S3 prefix concurrently.
+
+✅ J. Cluster and Pipeline Optimization✅ ✅ ✅ ✅ ✅ ✅ ✅ 
+Group small tasks to reduce overhead – control using spark.task.cpus.
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+
+
+
+✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ Production failure-------------✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ 
+
+
+++++++++++++++++++++++++++++++++++++++++++++++++++++++
+. Data Quality & Schema Issues
+#	Failure	Resolution
+1	Null in critical fields	Add NOT NULL check or filter nulls upfront
+2	Data type mismatch	Use explicit cast() or schema during read
+3	Schema evolution error	Use mergeSchema=True for Parquet/ORC or evolve schema manually
+4	Duplicate records	Use dropDuplicates() or define primary keys
+5	Corrupt/bad files	Use badRecordsPath and monitor logs
+6	Late data missing partitions	Use watermarking/window or reprocess late data
+7	Incorrect partition filter	Ensure correct date format + debug .inputFiles()
+8	UDF failure on nulls	Add null-safe guards if x is not None:
+9	CSV/JSON schema inference issue	Always provide explicit schema
+10	Empty input file	Add check: if df.rdd.isEmpty() before processing
+
+✅ B. Job Failures & Resource Issues✅ ✅ ✅ ✅ ✅ ✅ ✅ 
+#	Failure	Resolution
+.✅✅✅✅ Out of Memory✅✅
+Why: Spark runs out of heap memory due to large shuffles or cached datasets.
+
+Fix: Increase memory using --executor-memory and reduce dataset size.
+
+Code:
+
+spark.conf.set("spark.executor.memory", "8g")
+df.persist().checkpoint()
+Also: Filter early, avoid caching large unfiltered datasets.
+
+Note: Prefer persist(StorageLevel.MEMORY_AND_DISK) to avoid crashes.
+
+12. ✅✅✅Task Not Serializable✅✅
+Why: Spark tries to send non-serializable objects (e.g., SparkSession) to executors.
+
+Fix: Keep session and large objects out of map() or foreach().
+
+
+def process(row): return row.name.upper()
+df.rdd.map(process).collect()
+Wrong: Passing df or session inside the function.
+
+Tip: Use UDFs or broadcast variables if needed.
+
+13. ✅✅✅✅Too Many Small Files✅✅✅
+Why: Writing large number of small partitions creates tiny files on HDFS/S3.
+
+Fix: Use coalesce() before writing to reduce number of files.
+
+
+df.coalesce(1).write.mode("overwrite").parquet("/path")
+Also: Set spark.sql.files.maxPartitionBytes if reading from many files.
+
+Impact: Reduces metadata load and improves performance.
+
+14. ✅✅✅✅Data Skew✅✅✅✅
+Why: One or few keys have much more data → causes shuffle skew.
+
+Fix: Use salting or broadcast small side tables in joins.
+
+Code (salting):
+
+from pyspark.sql.functions import rand, concat_ws
+df = df.withColumn("skewed_key_salt", concat_ws("_", "key", (rand()*10).cast("int")))
+Broadcast:
+
+df.join(broadcast(small_df), "id")
+Tip: Check Spark UI for task duration variance.
+
+15. ✅✅✅✅Long Lineage✅✅✅✅
+Why: Long chain of transformations → Spark fails to track full DAG.
+
+Fix: Use checkpoint() to truncate lineage mid-pipeline.
+
+
+spark.sparkContext.setCheckpointDir("/tmp/checkpoints")
+df = df.checkpoint()
+Also: Use fewer chained transformations and intermediate writes.
+
+Risk: Long lineage increases recovery time.
+
+16. ✅✅✅Executor Lost Error✅✅✅
+Why: Executor crashes due to memory, disk, or GC pressure.
+
+Fix: Adjust executor.memory, executor.cores, and enable dynamic allocation.
+
+Code:
+
+
+spark.conf.set("spark.dynamicAllocation.enabled", "true")
+Retry logic:
+
+
+spark.conf.set("spark.task.maxFailures", "8")
+Also: Use executor.heartbeatInterval tuning.
+
+17. ✅✅✅✅Shuffle Spill✅✅✅✅
+Why: Data too large for memory during wide transformations (e.g., joins).
+
+Fix: Increase memory or reduce spark.sql.shuffle.partitions.
+
+
+spark.conf.set("spark.memory.fraction", "0.6")
+spark.conf.set("spark.sql.shuffle.partitions", "200")
+Also: Use persist() and filter early.
+
+Note: Monitor shuffle read/write metrics in UI.
+
+18. ✅✅✅High GC Overhead✅✅
+Why: Too much garbage collection time (> 50% CPU).
+
+Fix: Tune memory layout, reduce caching, switch GC type.
+
+Code:
+
+bash
+Copy
+Edit
+--conf spark.executor.extraJavaOptions="-XX:+UseG1GC"
+Or reduce memory pressure:
+
+
+df.unpersist()
+Tip: Avoid caching large datasets unless reused.
+
+19. ✅✅✅FileNotFoundException✅✅✅
+Why: File/path doesn’t exist (e.g., reading from wrong S3 or HDFS path).
+
+Fix: Add a path existence check before loading.
+
+Code:
+
+
+if spark._jsparkSession.catalog().tableExists("your_db", "your_table"):
+    df = spark.table("your_db.your_table")
+Python check for path:
+import os
+os.path.exists("hdfs://path")  # for HDFS
+Tip: Use retry or fallback mechanism in prod jobs.
+
+20. ✅✅✅Stage Failure Due to Slow Node✅✅
+Why: One node is slower → delays task/stage completion.
+
+Fix: Enable speculative execution.
+
+spark.conf.set("spark.speculation", "true")
+Also: Validate node health in cluster (memory/disk issues).
+
+Tip: Works well in spot instances where few nodes may lag.
+
++++++++++++++++++++++++++++++++
+
+✅ C. Configuration & Scheduling Issues
+#	Failure	Resolution
+21	Wrong cron time in Airflow	Use CRON validator + time zone awareness
+22	Job triggered twice	Avoid duplicate triggers or rerun checks
+23	DAG stuck in running	Add dagrun_timeout + email alerts
+24	Parameters not passed	Validate with conf.get("param") and default fallback
+25	Wrong file path due to date logic	Print and validate dynamic paths during testing
+26	Overwriting active file	Write with unique names or use staging folder
+27	Task fails silently	Use try-except + raise AirflowException or log.error
+28	Timezone mismatch	Always convert to UTC in date logic
+29	Missed SLA	Use sla_miss_callback in Airflow
+30	Invalid env var/config	Validate spark-submit --conf params or secrets source
+
+✅ D. Dependency & Infra Failures
+#	Failure	Resolution
+31	S3 throttling / Access denied	Use proper IAM role + retry logic
+32	Snowflake/DB connector error	Retry DB calls or increase connection pool size
+33	Hive metastore down	Add metastore HA or retry with backoff
+34	External API timeout	Add timeout + retry + circuit breaker pattern
+35	DNS resolution failure	Use FQDN/IP, check /etc/hosts or VPC settings
+36	Spark UI not accessible	Enable Spark history server & logs
+37	Driver killed by YARN/K8s	Check driver memory and keep logs in HDFS/S3
+38	Metadata DB full in Airflow	Enable cleanup DAG and prune old runs
+39	Network blip during write	Use checkpointing/staging + atomic rename
+40	Wrong JAR/library version	Validate PySpark/lib versions across all nodes
++++++++++++++++++++++++++++++++++++++
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++=+++++++++++
+✅ 
+✅✅✅✅✅✅ Reusable SCD type 2 dynamic function------------------------------✅ ✅ ✅ ✅ ✅ ✅ 
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+Reusable SCD Type 2 Function in PySpark
+python
+Copy
+Edit
+from pyspark.sql.functions import current_date, lit, col
+from delta.tables import DeltaTable
+
+def apply_scd_type_2(stg_table: str, core_table: str, primary_key: str, business_cols: list):
+    """
+    Apply SCD Type 2 logic to Delta tables.
+
+    Parameters:
+    - stg_table (str): Name of staging/source table (e.g., 'stg.customer')
+    - core_table (str): Name of core/target Delta table (e.g., 'core.customer')
+    - primary_key (str): Business key column name (e.g., 'customer_id')
+    - business_cols (list): List of business columns to track (e.g., ['name', 'address'])
+    """
+
+    # Read tables
+    df_stg = spark.table(stg_table)
+    delta_target = DeltaTable.forName(spark, core_table)
+
+    # 1. Expire old records where data changed
+    update_cond = " OR ".join([f"target.{col} <> stg.{col}" for col in business_cols])
+    base_cond = f"target.{primary_key} = stg.{primary_key} AND target.is_current = 1"
+
+    delta_target.alias("target").merge(
+        df_stg.alias("stg"),
+        base_cond
+    ).whenMatchedUpdate(
+        condition=update_cond,
+        set={
+            "is_current": lit(0),
+            "end_date": current_date()
+        }
+    ).execute()
+
+    # 2. Insert new versions (changed or new records)
+    insert_cols = {
+        primary_key: col(f"stg.{primary_key}"),
+        "start_date": current_date(),
+        "end_date": lit(None).cast("date"),
+        "is_current": lit(1),
+        "del_flag": col("stg.del_flag")
+    }
+
+    for c in business_cols:
+        insert_cols[c] = col(f"stg.{c}")
+
+    delta_target.alias("target").merge(
+        df_stg.alias("stg"),
+        f"target.{primary_key} = stg.{primary_key} AND target.is_current = 1"
+    ).whenNotMatchedInsert(
+        values=insert_cols
+    ).execute()
+
+    # 3. Mark logically deleted records
+    delta_target.alias("target").merge(
+        df_stg.filter("del_flag = 1").alias("stg"),
+        f"target.{primary_key} = stg.{primary_key} AND target.is_current = 1"
+    ).whenMatchedUpdate(
+        set={
+            "is_current": lit(0),
+            "end_date": current_date(),
+            "del_flag": lit(1)
+        }
+    ).execute()
+
+    print(f"SCD Type 2 applied from {stg_table} → {core_table}")
+✅ How to Call the Function
+python
+Copy
+Edit
+apply_scd_type_2(
+    stg_table="stg.customer",
+    core_table="core.customer",
+    primary_key="customer_id",
+    business_cols=["name", "address", "phone"]
+)
+Would you like:
+
+This packaged as a .py module?
+
+A full notebook with test data and before/after display?
+
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+Assumptions:
+src_table: new incremental data
+
+dim_table: existing dimension table (partitioned by current_flag or end_date)
+
+You use a surrogate key or primary key like cust_id
+
+You maintain columns: start_date, end_date, is_active or current_flag
+
+🔁 🔁 🔁 🔁 🔁 🔁 🔁 🔁 🔁 🔁 🔁 Steps for SCD Type 2 in Hive (with overwrite):🔁 🔁 🔁 🔁 🔁 🔁 🔁 🔁 🔁 🔁 🔁 🔁 
+1. Mark existing records as outdated
+sql
+Copy
+Edit
+INSERT OVERWRITE TABLE dim_table_temp
+SELECT
+    d.cust_id,
+    d.name,
+    d.start_date,
+    CURRENT_DATE AS end_date,
+    'N' AS current_flag
+FROM dim_table d
+JOIN src_table s ON d.cust_id = s.cust_id
+WHERE d.current_flag = 'Y' AND (
+    d.name <> s.name OR
+    -- include more column comparisons for changes
+    FALSE
+);
+2. Insert new versioned records
+sql
+Copy
+Edit
+INSERT INTO dim_table_temp
+SELECT
+    s.cust_id,
+    s.name,
+    CURRENT_DATE AS start_date,
+    NULL AS end_date,
+    'Y' AS current_flag
+FROM src_table s;
+3. Union unchanged current records
+sql
+Copy
+Edit
+INSERT INTO dim_table_temp
+SELECT *
+FROM dim_table d
+WHERE d.current_flag = 'Y'
+AND d.cust_id NOT IN (SELECT cust_id FROM src_table);
+4. Overwrite main dimension table
+bash
+Copy
+Edit
+hadoop fs -rm -r /user/hive/warehouse/your_db.db/dim_table/*
+MSCK REPAIR TABLE dim_table;
+Then reload:
+
+sql
+Copy
+Edit
+INSERT OVERWRITE TABLE dim_table SELECT * FROM dim_table_temp;
+💡 Tips:
+Use partitioned tables for performance.
+
+Automate MSCK REPAIR or use ALTER TABLE ADD PARTITION if partitions are manual.
+
+You can use Hive MERGE only if using Hive ACID tables (Hive 3+ + transactional enabled).
+
+Let me know if you want a PySpark + Hive SCD2 version too.
+
+
+
+
+
+
+
+
+✅ Assumptions:
+dim_table: Hive table storing SCD2 dimension data.
+
+src_df: new records (batch).
+
+Primary key: cust_id
+
+Tracking columns: start_date, end_date, is_active
+
+🧱 Hive Table Structure
+
+CREATE TABLE dim_table (
+  cust_id STRING,
+  name STRING,
+  start_date DATE,
+  end_date DATE,
+  is_active STRING
+)
+PARTITIONED BY (is_active)
+STORED AS PARQUET;
+
+🔁 🔁 🔁 🔁 🔁 🔁 🔁 🔁 🔁 🔁 PySpark SCD Type 2 Logic🔁 🔁 🔁 🔁 🔁 🔁 🔁 🔁 🔁 🔁 🔁 🔁 🔁 
+python
+Copy
+Edit
+from pyspark.sql import SparkSession
+from pyspark.sql.functions import col, lit, current_date
+
+spark = SparkSession.builder \
+    .appName("SCD Type 2 Load") \
+    .enableHiveSupport() \
+    .getOrCreate()
+
+# Load existing dim data (active only)
+dim_df = spark.table("your_db.dim_table").filter("is_active = 'Y'")
+
+# Load new source data
+src_df = spark.read.option("header", True).csv("/path/to/incoming_data.csv")
+
+# Step 1: Identify changed records
+changed_df = src_df.alias("src").join(dim_df.alias("dim"), "cust_id") \
+    .filter("src.name <> dim.name") \
+    .select("src.*")
+
+# Step 2: Expire old records
+expired_df = dim_df.alias("dim").join(changed_df.alias("chg"), "cust_id") \
+    .selectExpr("dim.cust_id", "dim.name", "dim.start_date", "current_date() as end_date", "'N' as is_active")
+
+# Step 3: Add new records
+new_df = changed_df.withColumn("start_date", current_date()) \
+    .withColumn("end_date", lit(None).cast("date")) \
+    .withColumn("is_active", lit("Y"))
+
+# Step 4: Unchanged records (still active)
+unchanged_df = dim_df.join(src_df, "cust_id", "left_anti")
+
+# Step 5: Final SCD2 Union
+final_df = unchanged_df.unionByName(expired_df).unionByName(new_df)
+
+# Step 6: Overwrite Hive table (full load or use dynamic partition overwrite)
+final_df.write.mode("overwrite").partitionBy("is_active").format("hive").saveAsTable("your_db.dim_table")
+💡 Tips:
+Enable dynamic partition overwrite in Spark:
+
+python
+Copy
+Edit
+spark.conf.set("spark.sql.sources.partitionOverwriteMode", "dynamic")
+Use Parquet for performance.
+
+Set "hive.exec.dynamic.partition.mode" = "nonstrict" in Hive if directly using SQL.
+
+++++++++++++++++++++++++++++++++++++++++++++++++

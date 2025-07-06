@@ -1,0 +1,858 @@
+DBT Core Concepts
+
+
+
+### ✅ 1. What is DBT?
+
+DBT (Data Build Tool) is a command-line tool that enables data transformation within your data warehouse using SQL and Jinja. It focuses purely on the "T" in ELT.
+It supports modular SQL code, version control (Git), testing, documentation, and CI/CD.
+Each SQL file in the `models/` folder becomes a table or view in your warehouse.
+
+**Example:**
+
+```bash
+dbt run --select stg_orders
+```
+
+---
+
+### ✅ 2. What is an Incremental Model?✅✅✅✅
+
+Incremental models allow DBT to insert only new or updated data instead of rebuilding the entire dataset.
+Ideal for large tables (e.g., transactions, logs).
+Uses the `{{ is_incremental() }}` function to apply conditional logic.
+Requires a timestamp or unique ID to detect new records.
+Improves performance and cost efficiency.
+
+**Example:**
+
+```sql
+{% if is_incremental() %}
+  WHERE updated_at > (SELECT MAX(updated_at) FROM {{ this }})
+{% endif %}
+```
+
+---
+
+### ✅ 3. What is a Snapshot?✅✅✅✅✅
+
+Snapshots in DBT implement Slowly Changing Dimensions (SCD Type 2).
+They track changes in row-level data over time.
+Defined using YAML for configuration and SQL for business logic.
+Uses either `timestamp` or `check` strategy to detect changes.
+Useful for maintaining historical records for customer or employee data.
+
+**Example:**
+
+```yaml
+strategy: timestamp
+updated_at: updated_at_column
+```
+
+---
+
+### ✅ 4. What is ref()?✅✅✅✅✅✅✅
+
+`ref()` is used to reference other DBT models and handle dependency management.
+Ensures proper build order and abstracts schema/database names.
+Allows modular model design and automatic DAG generation.
+Required for lineage tracking and CI/CD integration.
+Always use `ref()` instead of hardcoding schema.table names.
+
+**Example:**
+
+```sql
+SELECT * FROM {{ ref('stg_customers') }}
+```
+
+---
+
+### ✅ 5. What is a Schema Test?✅✅✅✅✅✅✅✅
+
+Schema tests ensure data quality rules like uniqueness or not null constraints.
+Defined in `schema.yml` alongside the model definition.
+Run with `dbt test` to detect data issues early.
+Supports built-in and custom SQL tests.
+Improves trust and reliability in data transformations.
+
+**Example:**
+
+```yaml
+- name: customer_id
+  tests:
+    - not_null
+    - unique
+```
+
+---
+
+### ✅ 6. What is a Custom Test?✅✅✅✅✅✅✅✅✅
+
+Custom tests let you define SQL queries to check for invalid data patterns.
+They return rows that violate business rules.
+Placed in the `tests/` folder or inline in YAML.
+Help validate complex rules beyond built-in tests.
+Used for fraud checks, invalid amounts, etc.
+
+**Example:**
+
+```sql
+SELECT * FROM orders WHERE amount < 0
+```
+
+---
+
+### ✅ 7. What is source()?✅✅✅✅✅✅✅
+
+`source()` refers to raw/external tables that DBT doesn't create.
+Used to document external dependencies and apply tests.
+Defined in `sources:` block of a YAML file.
+Helps track lineage from ingestion to transformation.
+Useful for governance and debugging.
+
+**Example:**
+
+```sql
+SELECT * FROM {{ source('raw', 'customers') }}
+```
+
+---
+
+### ✅ 8. What is a Seed in DBT?✅✅✅✅✅✅✅
+
+Seeds are CSV files in the `data/` folder that DBT loads as tables.
+They help initialize small reference tables like countries or categories.
+Run using `dbt seed` command.
+They support version control and testing like any model.
+Seeds are great for static lookup data.
+
+**Example:**
+
+```bash
+dbt seed --select country_codes
+```
+
+---
+
+### ✅ 9. What is a Macro in DBT?✅✅✅✅✅✅✅✅
+
+Macros are reusable Jinja functions stored in `.sql` files under `macros/`.
+They reduce repeated logic and support parameterization.
+Can be used for dynamic SQL generation, logging, or conditional logic.
+Called using `{{ macro_name(args) }}`.
+Supports DRY principles in DBT projects.
+
+**Example:**
+
+```sql
+{% macro default_zero(col) %} COALESCE({{ col }}, 0) {% endmacro %}
+```
+
+---
+
+### ✅ 10. What is env\_var()?✅✅✅✅✅✅✅✅✅
+
+`env_var()` is a Jinja function that pulls environment variables into DBT.
+Used to inject secrets or parameters like API keys or schema names.
+Avoids hardcoding sensitive values in SQL or YAML.
+Used in `profiles.yml`, macros, or configs.
+Secures credentials in CI/CD pipelines.
+
+**Example:**
+
+```sql
+{{ env_var('DB_PASSWORD') }}
+```
+
+---
+
+### ✅ 11. What is var()?✅✅✅✅✅✅✅✅✅✅
+✅
+`var()` accesses runtime variables defined in `dbt_project.yml` or CLI.
+Useful for changing logic or behavior across environments.
+Fallback defaults can be defined inline.
+Accessible in SQL or Jinja templates.
+Supports parameterization of models.
+
+**Example:**
+
+```sql
+{{ var('run_date', '2024-01-01') }}
+```
+
+---
+
+### ✅ 12. What is an Ephemeral Model?✅✅✅✅✅✅
+
+Ephemeral models are temporary CTEs used inline in SQL logic.
+They are not built in the warehouse as tables/views.
+Useful for small transformations or intermediate steps.
+Materialized only during dbt run execution.
+Great for simplifying logic while avoiding clutter.
+
+**Example:**
+
+```sql
+{{ config(materialized='ephemeral') }}
+```
+
+---
+
+### ✅ 13. What is dbt build?✅✅✅✅✅✅✅✅
+
+`dbt build` runs models, tests, snapshots, and seeds together.
+It is an all-in-one command ideal for production pipelines.
+Ensures that transformations and validations run in sync.
+Reduces chance of partial/incomplete builds.
+Preferred over running `dbt run` + `dbt test` separately.
+
+**Example:**
+
+```bash
+dbt build --select dim_customers+
+```
+
+---
+
+### ✅ 14. What is dbt run?✅✅✅✅✅✅✅✅
+
+`dbt run` compiles and executes all models (SQL files) into tables/views.
+You can select specific models using flags.
+Runs only transformations, not tests or seeds.
+Supports incremental builds, partitioning, and dependency resolution.
+Most commonly used dbt command.
+
+**Example:**
+
+```bash
+dbt run --select stg_orders+
+```
+
+---
+
+### ✅ 15. How to Schedule DBT?✅✅✅✅✅✅✅✅
+
+Use DBT Cloud’s UI scheduler or integrate with Airflow/GitHub Actions.
+Jobs can run hourly/daily or on-demand.
+DBT Cloud supports job monitoring, retry logic, and notifications.
+Custom schedulers use `dbt run` or `dbt build` as shell commands.
+Enable production automation.
+
+**Example:**
+
+```yaml
+on:
+  schedule:
+    - cron: '0 1 * * *'  # daily at 1am
+```
+
+---
+
+### ✅ 16. What is a DAG in DBT?✅✅✅✅✅✅✅
+
+DAG (Directed Acyclic Graph) shows dependency flow among models.
+Created automatically via `ref()` usage.
+Visible in DBT Cloud UI or via `dbt docs generate`.
+Ensures correct model execution order.
+Improves maintainability and debugging.
+
+**Example:**
+
+```bash
+dbt docs generate && dbt docs serve
+```
+
+---
+
+### ✅ 17. What is dbt test?✅✅✅✅✅✅✅
+
+Runs schema and custom data quality tests.
+Helps validate assumptions about data (e.g., uniqueness, nulls).
+Output is shown in terminal or saved to `target/run_results.json`.
+Tests fail jobs in CI pipelines.
+Improves trust in analytics workflows.
+
+**Example:**
+
+```bash
+dbt test --select customers
+```
+
+---
+
+### ✅ 18. How to rollback a model?✅✅✅✅
+
+Use Git to revert changes and re-run `dbt run`.
+Snowflake users can also query older versions via Time Travel.
+Ensure snapshot/backup if data loss is critical.
+Use `dbt build` to validate changes before production.
+Combine with CI/CD to prevent bad merges.
+
+**Example:**
+
+```bash
+git checkout HEAD~1 -- models/customer.sql
+```
+
+---
+
+### ✅ 19. How to loop with Jinja?✅✅✅✅✅✅✅
+
+Jinja supports for-loops for dynamic SQL generation.
+Used in macros or model logic to repeat structures.
+Ideal for unioning monthly partitions or dynamic pivots.
+Avoids repetitive code blocks.
+Powerful for dynamic logic in dbt.
+
+**Example:**
+
+```sql
+{% for month in ['Jan', 'Feb'] %}
+SELECT '{{ month }}' as month
+{% endfor %}
+```
+
+---
+
+### ✅ 20. How to log in DBT?
+
+Use the `log()` macro in Jinja to output messages to console/logs.
+Helpful for debugging and status reporting in macros/models.
+Log level can be `info`, `warn`, or `debug`.
+Visible in DBT Cloud job output or local run.
+Add checkpoints or metadata tracking.
+
+**Example:**
+
+```sql
+{{ log('Starting model transformation', info=True) }}
+```
+
+---
+
++++++++++++++++++++++++++++++++++++++++++++++++++++
+✅ What is DBT?
+DBT is a SQL-based tool for transforming data in the warehouse using modular SQL + version control.
+E.g., dbt run creates a transformed table from raw data.
+
+✅ How is DBT different from ETL tools like Glue?
+DBT only handles the T (transform); it assumes data is already in the warehouse.
+Use Glue to load → DBT to transform.
+
+✅ What is a DBT model?
+A .sql file that becomes a table or view after dbt run.
+E.g., models/orders.sql.
+
+✅ What is a source in DBT?
+Reference to external/raw tables not created by DBT.
+E.g., source('raw', 'customers').
+
+✅ What is materialization?
+Controls how DBT builds models: table, view, incremental, ephemeral.
+E.g., {{ config(materialized='table') }}.
+
+🔹 Incremental & Dependencies
+✅ What is an incremental model?
+Only processes new or changed data since last run.
+
+Use is_incremental() in SQL.
+
+✅ How to define incremental logic?
+
+
+WHERE updated_at > (SELECT MAX(updated_at) FROM {{ this }})
+
+✅ What is ref()?
+Connects DBT models for dependency management.
+E.g., ref('stg_orders').
+
+✅ What is source()?
+Used to refer to raw/external tables in DBT.
+E.g., source('raw', 'orders').
+
+✅ Difference between ref() and source()?
+ref() is for DBT models; source() is for raw tables.
+Both help track lineage.
+
+🔹 Testing & Snapshots
+✅ What is a schema test?
+Built-in tests like unique, not_null, defined in YAML.
+Test that customer_id is not null.
+
+✅ What is a custom test?
+A SQL query returning rows that break a rule.
+E.g., SELECT * FROM orders WHERE amount < 0.
+
+✅ What are DBT snapshots?
+Track historical changes (SCD Type 2).
+Useful for customer dimension tracking.
+
+✅ How to define a snapshot?
+Use a .sql in snapshots/ with timestamp strategy.
+E.g., strategy: timestamp.
+
+✅ When to use snapshots vs incrementals?
+Snapshots for full history; incremental for recent changes only.
+Snapshot tracks changes in values.
+
+🔹 Jinja & Variables
+✅ What is Jinja in DBT?
+Templating engine for logic in SQL.
+Used in macros and conditions.
+
+✅ How to use var() in DBT?
+Access variables passed via CLI or default values.
+E.g., {{ var('run_date', '2024-01-01') }}.
+
+✅ How to loop with Jinja?
+
+sql
+Copy
+Edit
+{% for month in ['Jan', 'Feb'] %} SELECT '{{ month }}' {% endfor %}
+✅ What is env_var()?
+Pulls environment variables.
+E.g., {{ env_var('DB_PASSWORD') }}.
+
+✅ What does {{ this }} mean?
+Refers to the current model (catalog.schema.table).
+Helpful for dynamic SQL.
+
+🔹 Running & Scheduling
+✅ What does dbt run do?
+Builds all selected models.
+E.g., dbt run --select stg_customers+.
+
+✅ What does dbt build do?
+Runs models, tests, snapshots, seeds.
+Recommended for production.
+
+✅ How to run only changed models?
+Use --select state:modified.
+Used in CI/CD pipelines.
+
+✅ What is a seed in DBT?
+Loads CSV files as tables.
+Stored in data/ folder.
+
+✅ How do you schedule DBT jobs?
+Use DBT Cloud scheduler, Airflow, or CI tools.
+E.g., daily run via DBT Cloud.
+
+🔹 CI/CD & Versioning
+✅ How to implement CI/CD for DBT?
+Use GitHub Actions or GitLab CI to run/test on PR.
+Validates model impact before merge.
+
+✅ How do you rollback a model?
+Revert code via Git, then rerun dbt run.
+Delta time travel helps too.
+
+✅ How to test downstream models?
+Use dbt run --select model+.
+Runs model and dependents.
+
+✅ How to log in DBT?
+Use {{ log('msg', info=True) }}.
+Appears in job logs.
+
+✅ Where are results stored?
+Tables in warehouse, logs in target/ folder.
+Includes run_results.json.
+
+🔹 Optimization & Best Practices
+✅ How to improve performance?
+Use incremental models, partitions, ZORDER.
+Avoid nested CTEs.
+
+✅ What is an ephemeral model?
+Temporary CTE model, not built as table/view.
+Great for small reusable logic.
+
+✅ How to manage dependencies?
+Use ref() to auto-handle build order.
+Ensures clean DAG.
+
+✅ What is on-run-start used for?
+Executes macros before a run starts.
+Used for audit logging.
+
+✅ What’s the difference between table and view?
+table is physical, view is logical.
+table improves performance.
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅
+✅✅✅✅✅✅✅✅DBT with Snowflake---------✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅✅
+✅✅✅✅✅✅✅✅
++++++++++++++++++++++++++++++++
+
+
+1. Transform Raw Data into Models✅✅✅✅✅✅
+
+Use DBT models to turn raw Snowflake tables into cleaned, transformed outputs using SQL.
+
+SELECT * FROM {{ source('raw', 'orders') }}
+
+2. Incremental Loading✅✅✅✅✅
+
+Load only new data using is_incremental() for efficient model updates.
+
+{% if is_incremental() %}
+  WHERE updated_at > (SELECT MAX(updated_at) FROM {{ this }})
+{% endif %}
+
+3. Snapshots for SCD Type 2✅✅✅✅✅✅✅✅✅
+
+Track historical changes to dimensions using snapshots in Snowflake.
+
+strategy: timestamp
+unique_key: id
+updated_at: updated_at_column
+
+4. Use ref() for Dependencies✅✅✅✅✅✅✅✅
+
+Reference other DBT models to enforce build order and lineage.
+
+SELECT * FROM {{ ref('stg_customers') }}
+
+5. Schema Testing✅✅✅✅✅✅✅✅
+
+Apply not_null and unique tests to enforce data quality in Snowflake.
+
+tests:
+  - not_null
+  - unique
+
+6. Custom Tests✅✅✅✅✅✅
+
+Write SQL-based custom tests to detect data anomalies.
+
+SELECT * FROM orders WHERE amount < 0
+
+7. Seeds for Lookup Tables✅✅✅✅✅✅✅✅✅
+
+Use CSVs as Snowflake tables for country codes or mappings.
+
+dbt seed --select country_codes
+
+8. Materialization: Table/View/Incremental✅✅✅✅✅✅✅✅
+
+Control how models are built with materializations.
+
+{{ config(materialized='table') }}
+
+9. Use Macros for Reusability✅✅✅✅✅✅
+
+Create Jinja macros to simplify and standardize SQL logic.
+
+{% macro default_zero(col) %} COALESCE({{ col }}, 0) {% endmacro %}
+
+10. Log Messages During Runs✅✅✅✅✅✅✅
+
+Log helpful debug or progress messages during dbt runs.
+
+{{ log('Starting transformation', info=True) }}
+
+11. Dynamic SQL with Jinja✅✅✅✅✅✅✅✅✅
+
+Use Jinja to loop and build SQL statements dynamically.
+
+{% for region in ['APAC', 'EU'] %}
+SELECT '{{ region }}' AS region
+{% endfor %}
+
+12. Use env_var for Secrets✅✅✅✅✅✅✅
+
+Pull credentials or config from environment variables.
+
+{{ env_var('SNOWFLAKE_PASSWORD') }}
+
+13. Use var for Runtime Configs✅✅✅✅✅✅✅✅✅
+
+Pass variables into models to change behavior by environment.
+
+{{ var('target_date', '2023-01-01') }}
+
+14. Build with dbt build✅✅✅✅✅✅✅✅✅
+
+Run models, tests, snapshots, and seeds in a single command.
+
+dbt build
+
+15. Profile-Based Snowflake Connection✅✅✅✅✅✅✅✅
+
+Manage Snowflake credentials using profiles.yml.
+
+user: my_user
+warehouse: compute_wh
+
+16. Configure Incremental Model Partitioning✅✅✅✅✅✅✅✅✅
+
+Optimize Snowflake storage with partitioned incremental loads.
+
+{{ config(partition_by='event_date') }}
+
+17. Surrogate Keys with Macros✅✅✅✅✅✅✅
+
+Generate surrogate keys for dimensions.
+
+{{ dbt_utils.surrogate_key(['id', 'region']) }}
+
+18. Manage Dependencies with tags✅✅✅✅✅✅✅✅
+
+Tag models to organize logic or selectively run groups.
+
+tags: ['finance', 'staging']
+
+19. Enable Column-Level Documentation✅✅✅✅✅✅✅
+
+Document columns in YAML to improve data discovery.
+
+- name: email
+  description: "Customer email address"
+
+20. Create Ephemeral Models for CTEs✅✅✅✅✅✅✅✅✅
+
+Avoid creating Snowflake objects for intermediate steps.
+
+{{ config(materialized='ephemeral') }}
+
+21. Use dbt_utils.date_spine for Date Warehousing✅✅✅✅✅✅✅✅
+
+Generate continuous date ranges for fact table completeness.
+
+{{ dbt_utils.date_spine('day', '2022-01-01', '2023-01-01') }}
+
+22. Run State-based Builds in CI/CD✅✅✅✅✅✅✅
+
+Run only changed models in CI pipelines for speed.
+
+dbt run --select state:modified
+
+23. Track Lineage with dbt docs✅✅✅✅✅✅✅✅
+
+Generate documentation and visual model lineage graphs.
+
+dbt docs generate && dbt docs serve
+
+24. Use on-run-start for Audit Logging✅✅✅✅✅✅✅✅✅
+
+Execute logging macros at the start of each run.
+
+{% do log('Starting dbt run for {{ target.name }}') %}
+
+25. Set Persisted Descriptions in Snowflake✅✅✅✅✅✅
+
+Write descriptions into Snowflake metadata for BI tools.
+
+persist_docs:
+  relation: true
+  columns: true
+
+26. Test Staging Layer Only✅✅✅✅✅✅✅✅✅
+
+Test only staging logic without running the entire pipeline.
+
+dbt run --select path:models/staging
+✅
+27. Filter Source Freshness✅✅✅✅✅✅✅✅✅
+
+Check for stale raw data using freshness tests.
+
+loaded_at_field: updated_at
+
+28. Use dbt_artifacts for Run Metadata✅✅✅✅✅✅✅✅
+
+Capture metadata about runs, model durations, errors.
+
+SELECT * FROM dbt_artifacts.run_results
+
+29. Build Semantic Layer with dbt metrics✅✅✅✅✅✅✅✅✅
+
+Define KPIs like revenue in metrics: blocks.
+
+metrics:
+  - name: total_revenue
+    label: "Total Revenue"
+    type: sum
+    sql: revenue
+
+30. Perform Pre-Hooks and Post-Hooks✅✅✅✅✅✅✅✅
+
+Run Snowflake SQL before or after model builds.
+
+{{ config(pre_hook='DELETE FROM audit_log') }}
+
+(Use cases 31–50 will continue...)
+++++++++++++++++++++++++++++++++++++++++++++
+31. Use dbt-clean for Safe Refresh✅✅✅✅✅✅✅✅
+Clean the dbt_modules, target, and compiled directories before a new run.
+Useful for CI pipelines to ensure a fresh start.
+
+bash
+Copy
+Edit
+dbt clean
+32. Create Reusable Intermediate Models✅✅✅✅✅✅✅
+Split transformations into reusable layers (stg, int, fct) for better modularity.
+This follows the "modular SQL" principle.
+
+sql
+Copy
+Edit
+-- models/int/int_sales.sql
+SELECT * FROM {{ ref('stg_orders') }}
+33. Disable Model in Production✅✅✅✅✅✅✅
+Use enabled: false in YAML to prevent certain models from running in specific environments.
+Useful for dev-only or test models.
+
+yaml
+Copy
+Edit
+enabled: false
+34. Store Audit Trail with Logging Macros✅✅✅✅✅✅✅
+Capture row counts, timestamps, and model metadata after each run.
+Helps in data validation and auditing.
+
+sql
+Copy
+Edit
+INSERT INTO audit_log VALUES ('orders_model', CURRENT_TIMESTAMP, {{ var('row_count') }})
+35. Use CASE WHEN for Business Rules
+Implement conditional transformations inline using standard SQL.
+Keeps business logic centralized in dbt models.
+
+sql
+Copy
+Edit
+CASE WHEN status = 'cancelled' THEN 0 ELSE amount END AS final_amount
+36. Use dbt build --full-refresh for Hard Reload
+Force recreate models (e.g., when schema changes or bugs occur).
+Bypasses incremental logic.
+
+bash
+Copy
+Edit
+dbt build --full-refresh
+37. Use sources.yml for Source Metadata
+Track source table names, freshness, and descriptions in YAML.
+Improves visibility and governance.
+
+yaml
+Copy
+Edit
+- name: customers
+  description: "Raw customer table from CRM"
+38. Avoid SELECT * in Models✅✅✅✅✅✅
+Use explicit columns to improve performance and avoid schema drift issues.
+Also helps with documentation.
+
+sql
+Copy
+Edit
+SELECT id, name, email FROM {{ source('raw', 'customers') }}
+39. Secure Columns with Snowflake Policies✅✅✅✅✅✅✅✅✅✅
+Use masking policies in Snowflake with dbt hooks to protect sensitive data.
+E.g., on SSN or salary fields.
+
+sql
+Copy
+Edit
+CREATE MASKING POLICY ssn_mask AS (val STRING) RETURNS STRING -> CASE WHEN CURRENT_ROLE() = 'HR' THEN val ELSE 'XXX-XX-XXXX' END;
+40. Track Rejected Rows in Intermediate Models✅✅✅✅✅✅✅✅
+Create a model just for bad data to log or quarantine invalid records.
+Improves data observability and quality control.
+
+sql
+Copy
+Edit
+SELECT * FROM stg_orders WHERE amount < 0
+41. Build Multi-Environment Pipelines✅✅✅✅✅✅✅✅✅✅
+Use different Snowflake schemas for dev, test, prod via profiles.yml.
+Enables true environment isolation.
+
+yaml
+Copy
+Edit
+schema: "{{ target.name }}_schema"
+42. Build Chained Tasks for Orchestration✅✅✅✅✅✅✅✅
+Use Snowflake Tasks to chain dbt model execution in Snowflake (via post-hooks).
+Great for decoupling from Airflow if needed.
+
+sql
+Copy
+Edit
+CREATE TASK run_dbt_transform AFTER my_ingestion_task AS CALL dbt_run_procedure();
+43. Track Row Count Differences✅✅✅✅✅✅✅
+Use a macro to compare row counts between source and target.
+Helps validate data movement during migration.
+
+sql
+Copy
+Edit
+SELECT COUNT(*) FROM {{ source('raw', 'orders') }} MINUS SELECT COUNT(*) FROM {{ ref('stg_orders') }}
+44. Leverage Common Table Expressions (CTEs) in Models✅✅✅✅✅✅✅
+Use CTEs to break complex queries into understandable chunks.
+Makes SQL more modular and easier to debug.
+
+sql
+Copy
+Edit
+WITH clean_orders AS (
+  SELECT * FROM raw_orders WHERE status != 'test'
+)
+SELECT * FROM clean_orders
+45. Push Filter Logic Down to Staging✅✅✅✅✅✅✅✅✅
+Avoid redundant filtering in core/fact models.
+Apply early filters in staging models for better performance.
+
+sql
+Copy
+Edit
+-- stg_orders.sql
+SELECT * FROM raw_orders WHERE status = 'complete'
+46. Use Triggers for Real-Time Alerts (Snowflake + dbt Cloud)✅✅✅✅✅✅✅✅
+Combine Snowflake alerts with dbt Cloud Webhooks to raise alerts on failures.
+Useful in critical pipelines.
+
+bash
+Copy
+Edit
+curl -X POST -H "Content-Type: application/json" -d '{"message":"DBT failure"}' <webhook_url>
+47. Integrate with BI Tools (Tableau, Power BI)✅✅✅✅✅✅
+Expose DBT-generated models directly to BI tools via Snowflake.
+Ensures consistency across reporting layers.
+
+sql
+Copy
+Edit
+-- Tableau connects to core_sales table built by dbt
+48. Use Surrogate Keys for Slowly Changing Dimensions✅✅✅✅✅✅✅
+Generate SHA-based keys for uniqueness in dimension models.
+Critical for SCD2 patterns.
+
+sql
+Copy
+Edit
+{{ dbt_utils.surrogate_key(['cust_id', 'region']) }}
+49. Combine dbt with Snowpipe
+Ingest data via Snowpipe, transform via dbt run.
+Decouple ingestion and transformation for performance.
+
+sql
+Copy
+Edit
+-- Snowpipe loads to stg_customers → dbt transforms to dim_customers
+50. Build End-to-End Data Contracts✅✅✅✅✅✅✅✅✅
+Use tests + documentation + YAML + tags to define strong contracts.
+Ensures models are reliable and transparent.
+
+yaml
+Copy
+Edit
+- name: customer_id
+  tests:
+    - not_null
+    - unique
+  description: "Primary key for customer table"
+
