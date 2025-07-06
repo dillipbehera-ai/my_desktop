@@ -1,0 +1,12 @@
+import csv
+
+# Read input file
+with open('input.csv', 'r') as infile:
+    reader = csv.DictReader(infile)
+    data = [row for row in reader if int(row['age']) > 25]  # Simple DML: filter rows
+
+# Write output file
+with open('output.csv', 'w', newline='') as outfile:
+    writer = csv.DictWriter(outfile, fieldnames=['name', 'age'])
+    writer.writeheader()
+    writer.writerows(data)
